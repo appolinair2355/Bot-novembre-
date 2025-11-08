@@ -1,6 +1,6 @@
-import time
 import json
 import os
+import time
 
 LICENCES_FILE = "licences.json"
 
@@ -39,4 +39,3 @@ def save_licence_usage(licence, user_id):
 def licence_deja_utilisee(licence):
     data = load_licences()
     return data.get(licence, {}).get("used", False)
-  
