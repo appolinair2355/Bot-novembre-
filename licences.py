@@ -1,41 +1,41 @@
-import json
-import os
-import time
+import json, os, time, pathlib
 
-LICENCES_FILE = "licences.json"
+DB = pathlib.Path("licences.json")
 
-def load_licences():
-    if not os.path.exists(LICENCES_FILE):
-        return {}
-    with open(LICENCES_FILE, "r") as f:
-        return json.load(f)
+# ---------- helpers ----------
+def _load() -> dict:
+    if not DB.exists():
+        DB.write_text("{}")
+    return json.loads(DB.read_text())
 
-def save_licences(data):
-    with open(LICENCES_FILE, "w") as f:
-        json.dump(data, f)
+def _save(data: dict):
+    DB.write_text(json.dumps(data, indent=2))
 
-def ajouter_licence(licence, hours):
-    data = load_licences()
-    data[licence] = {
-        "hours": hours,
-        "used": False,
-        "user_id": None,
-        "created_at": time.time()
-    }
-    save_licences(data)
+# ---------- métiers ----------
+def ajouter_licence(code: str, hours: int):
+    data = _load()
+    data[code] = {"hours": hours, "used": False, "user_id": None,
+                  "created_at": time.time()}
+    _save(data)
 
-def check_licence(licence):
-    data = load_licences()
-    return licence in data and not data[licence]["used"]
+def licence_valide(code: str) -> bool:
+    return code in _load() and not _load()[code]["used"]
 
-def save_licence_usage(licence, user_id):
-    data = load_licences()
-    if licence in data and not data[licence]["used"]:
-        data[licence]["used"] = True
-        data[licence]["user_id"] = user_id
-        data[licence]["used_at"] = time.time()
-        save_licences(data)
+def marquer_utilisee(code: str, user_id: int):
+    data = _load()
+    if code in data and not data[code]["used"]:
+        data[code]["used"] = True
+        data[code]["user_id"] = user_id
+        data[code]["used_at"] = time.time()
+        _save(data)
 
-def licence_deja_utilisee(licence):
-    data = load_licences()
-    return data.get(licence, {}).get("used", False)
+def est_expiree(code: str) -> bool:
+    """
+    VRAI si > hours*3600 secondes ont passé depuis used_at
+    """
+    data = _load().get(code)
+    if not data or not data["used"]:
+        return False
+    elapsed = time.time() - data["used_at"]
+    return elapsed > data["hours"] * 3600
+        
