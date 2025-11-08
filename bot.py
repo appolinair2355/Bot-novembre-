@@ -1,13 +1,12 @@
 import os
 import logging
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from admin import is_admin, generate_licence, use_licence, licence_valid
 from licences import check_licence, save_licence_usage
 
 TOKEN = os.getenv("BOT_TOKEN")
 
-# Clavier principal
 keyboard = [
     ["LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : TREFLE"],
     ["LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : CARREAU"],
@@ -18,7 +17,6 @@ keyboard = [
 ]
 reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# Réponses cartes
 CARTES_REPONSES = {
     "10♦️": "♠️",
     "10♠️": "❤️",
@@ -87,13 +85,12 @@ async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) < 2 or args[0] != "kouame2025":
         await update.message.reply_text("❌ Accès refusé.")
         return
-
     try:
         hours = int(args[1])
         licence = generate_licence(hours)
         await update.message.reply_text(f"🔑 Licence générée : `{licence}`", parse_mode="Markdown")
-    except Exception as e:
-        await update.message.reply_text("❌ Erreur : /admin kouame2025 <heures>")
+    except Exception:
+        await update.message.reply_text("❌ Usage : /admin kouame2025 <heures>")
 
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -101,7 +98,7 @@ def main():
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     port = int(os.environ.get("PORT", 10000))
-    app.run_webhook(listen="0.0.0.0", port=port, webhook_url=f"https://tonnomapp.render.com")
+    app.run_webhook(listen="0.0.0.0", port=port, webhook_url="https://tonnomapp.render.com")
 
 if __name__ == "__main__":
     main()
