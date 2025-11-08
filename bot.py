@@ -1,3 +1,8 @@
+import os
+from . import licences   # si tu utilises « from . import licences »
+TOKEN = os.environ["BOT_TOKEN"]
+WEBHOOK_PATH = "/telegram"
+
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ContextTypes
 
