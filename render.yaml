@@ -1,12 +1,13 @@
 services:
   - type: web
-    name: bakara-bot
+    name: bakara-beast
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
         value: 7573497633:AAHk9K15yTCiJP-zruJrc9v8eK8I9XhjyH4
       - key: PORT
         value: 10000
+        
         
