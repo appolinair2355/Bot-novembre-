@@ -1,53 +1,28 @@
-import os
-import threading
-import time
-from flask import Flask, request, abort
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters
+from flask import Flask, request
+import os, logging
+from bot import TelegramBot
+from config import Config
 
-# ------------- importe nos handlers -------------
-from bot import start, admin, message_general, TOKEN, WEBHOOK_PATH
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 
-# ------------- Flask -------------
-app = Flask(__name__)
+app   = Flask(__name__)
+bot   = TelegramBot(Config().BOT_TOKEN)
 
-# ------------- PTB Application -------------
-application = Application.builder().token(TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("admin", admin))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_general))
-
-# ------------- Webhook Flask -------------
-@app.route(WEBHOOK_PATH, methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.headers.get("content-type") != "application/json":
-        abort(400)
-    json_data = request.get_json(force=True)
-    update = Update.de_json(json_data, application.bot)
-    # traite l’update en arrière-plan
-    threading.Thread(target=application.process_update, args=(update,)).start()
-    return "", 200
+    try:
+        bot.handle_update(request.get_json(force=True))
+        return "OK", 200
+    except Exception:
+        logger.exception("Webhook error")
+        return "Error", 500
 
-# ------------- Health Check (Render) -------------
-@app.route("/")
+@app.route("/health", methods=["GET"])
 def health():
-    return "OK", 200
-
-# ------------- Mise à jour du webhook au démarrage -------------
-def set_telegram_webhook():
-    url = os.getenv("WEBHOOK_URL") + WEBHOOK_PATH
-    while True:
-        try:
-            application.bot.set_webhook(url)
-            print("Webhook Telegram défini →", url)
-            break
-        except Exception as e:
-            print("Retry set_webhook :", e)
-            time.sleep(2)
+    return {"status": "healthy"}, 200
 
 if __name__ == "__main__":
-    set_telegram_webhook()
-    # Gunicorn lancera cette appli sur 0.0.0.0:PORT
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-
-  
+    bot.set_webhook(Config().WEBHOOK_URL)
+    app.run(host="0.0.0.0", port=Config().PORT, debug=False)
+    
