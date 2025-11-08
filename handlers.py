@@ -8,20 +8,27 @@ class TelegramHandlers:
     def __init__(self, token: str):
         self.token   = token
         self.base_url= f"https://api.telegram.org/bot{token}"
-        # 10 cartes → transformation + nom
+        # 10 cartes → nom français + symbole
         self.transfo = {
-            "10♦️": ("♠️", "Pique"),
-            "10♠️": ("❤️", "Cœur"),
-            "9♣️":  ("❤️", "Cœur"),
-            "9♦️":  ("♠️", "Pique"),
-            "8♣️":  ("♠️", "Pique"),
-            "8♠️":  ("♣️", "Trèfle"),
-            "7♠️":  ("♠️", "Pique"),
-            "7♣️":  ("♣️", "Trèfle"),
-            "6♦️":  ("♣️", "Trèfle"),
-            "6♣️":  ("♦️", "Carreau")
+            "10♦️": ("PIQUE", "♠️"),
+            "10♠️": ("COEUR", "❤️"),
+            "9♣️":  ("COEUR", "❤️"),
+            "9♦️":  ("PIQUE", "♠️"),
+            "8♣️":  ("PIQUE", "♠️"),
+            "8♠️":  ("TREFLE", "♣️"),
+            "7♠️":  ("PIQUE", "♠️"),
+            "7♣️":  ("TREFLE", "♣️"),
+            "6♦️":  ("TREFLE", "♣️"),
+            "6♣️":  ("CARREAU", "♦️")
         }
-        self.regles  = (
+        self.start_msg = (
+            "🔰 SUIVRE CES CONSIGNES POUR CONNAÎTRE LA CARTE DANS LE JEU SUIVANT👇\n\n"
+            "🟠 Regarde la  première cartes du joueur \n"
+            "🟠 Tape la carte  dans le BOT\n"
+            "🟠 Parie sur la prédiction  sur le Joueur dans le Jeu Suivant \n\n\n"
+            "Rattrape 1 JEU"
+        )
+        self.regles = (
             "1️⃣ LES HEURES DE JEUX FAVORABLE : 01h à 04h  / 14h à 17h / 20h à 22h\n\n"
             "2️⃣ ÉVITEZ DE PARIÉ LE WEEKEND : Le Bookmaker Change régulièrement les algorithmes parce qu'il y a beaucoup de joueurs  le weekend\n\n"
             "3️⃣ SUIVRE LE TIMING DES 10 MINUTES : Après avoir placé un paris et gagnez un jeu il est essentiel de sortir du Bookmaker et revenir 10 minutes après pour un autre paris\n\n"
@@ -51,7 +58,7 @@ class TelegramHandlers:
             ["6♣️", "REGLES DE JEU"]
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-        return self.send_message(chat_id, "Choisis une carte :", markup)
+        return self.send_message(chat_id, "Choisis la carte observée :", markup)
 
     # ---------- route ----------
     def handle_update(self, update: Dict[str, Any]) -> None:
@@ -59,11 +66,13 @@ class TelegramHandlers:
         text = msg.get("text", "")
         chat_id = msg["chat"]["id"]
         if text == "/start":
+            self.send_message(chat_id, self.start_msg)
             self.send_keyboard(chat_id)
             return
         if text == "REGLES DE JEU":
             self.send_message(chat_id, self.regles)
             return
         if text in self.transfo:
-            symb, nom = self.transfo[text]
-            self.send_message(chat_id, f"LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {symb} ({nom})")
+            nom, symb = self.transfo[text]
+            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {nom} {symb}\n\n📍ASSURANCE 100%📍")
+                                                                                                    
