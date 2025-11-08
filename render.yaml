@@ -1,14 +1,24 @@
 services:
   - type: web
-    name: bakara-beast
+    name: cartes-bot
     env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app -b 0.0.0.0:$PORT
+    startCommand: gunicorn --bind 0.0.0.0:10000 --workers 1 --timeout 120 --log-level info main:app
     envVars:
+      - key: API_ID
+        value: "29177661"
+      - key: API_HASH
+        value: "a8639172fa8d35dbfd8ea46286d349ab"
       - key: BOT_TOKEN
-        value: 7573497633:AAHk9K15yTCiJP-zruJrc9v8eK8I9XhjyH4
+        sync: false
+      - key: ADMIN_ID
+        value: "1190237801"
+      - key: RENDER_DEPLOYMENT
+        value: "true"
       - key: PORT
-        value: 10000
+        value: "10000"
       - key: WEBHOOK_URL
-        value: https://bot-novembre-1.onrender.com
-        
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: false
