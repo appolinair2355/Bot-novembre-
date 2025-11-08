@@ -1,24 +1,16 @@
-import random
-import string
-from licences import ajouter_licence, licence_deja_utilisee
+import random, string
+from licences import ajouter_licence
 
-def generate_licence(hours):
-    lettre = random.choice(string.ascii_lowercase)
-    chiffres = ''.join(random.choices(string.digits, k=3))
-    maj = random.choice(string.ascii_uppercase)
-    licence = f"{lettre}{chiffres}{hours}h{maj}"
-    ajouter_licence(licence, hours)
-    return licence
+PWD_ADMIN = "kouame2025"
 
-def is_admin(password):
-    return password == "kouame2025"
+def est_admin(mot: str) -> bool:
+    return mot == PWD_ADMIN
 
-def use_licence(licence, user_id):
-    if licence_deja_utilisee(licence):
-        return False
-    return True
-
-def licence_valid(user_id):
-    # TODO: vérifier si licence encore active pour ce user
-    return True
+def generer_licence(heures: int) -> str:
+    lettre  = random.choice(string.ascii_lowercase)
+    chiffre = ''.join(random.choices(string.digits, k=3))
+    maj     = random.choice(string.ascii_uppercase)
+    code    = f"{lettre}{chiffre}{heures}h{maj}"
+    ajouter_licence(code, heures)
+    return code
     
