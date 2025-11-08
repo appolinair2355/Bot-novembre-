@@ -8,10 +8,18 @@ class TelegramHandlers:
     def __init__(self, token: str):
         self.token   = token
         self.base_url= f"https://api.telegram.org/bot{token}"
-        # transformations
+        # 10 cartes → transformation + nom
         self.transfo = {
-            "♦": "♠", "♠": "❤", "❤": "♣", "♣": "♦",
-            "8": "♠", "10": "❤", "U": "♣", "7": "♠", "9": "❤", "6": "♦"
+            "10♦️": ("♠️", "Pique"),
+            "10♠️": ("❤️", "Cœur"),
+            "9♣️":  ("❤️", "Cœur"),
+            "9♦️":  ("♠️", "Pique"),
+            "8♣️":  ("♠️", "Pique"),
+            "8♠️":  ("♣️", "Trèfle"),
+            "7♠️":  ("♠️", "Pique"),
+            "7♣️":  ("♣️", "Trèfle"),
+            "6♦️":  ("♣️", "Trèfle"),
+            "6♣️":  ("♦️", "Carreau")
         }
         self.regles  = (
             "1️⃣ LES HEURES DE JEUX FAVORABLE : 01h à 04h  / 14h à 17h / 20h à 22h\n\n"
@@ -34,16 +42,16 @@ class TelegramHandlers:
             logger.error(f"send_message error : {e}")
             return False
 
-    # ---------- clavier exact image ----------
+    # ---------- clavier 10 boutons ----------
     def send_keyboard(self, chat_id: int) -> bool:
         kb = [
-            ["8", "10", "REGLES DE JEU", "C"],
-            ["U", "7", "9", "6"],
-            ["♦", "♠", "❤", "♣"],
-            ["6", "7", "8", "9"]
+            ["10♦️", "10♠️", "9♣️"],
+            ["9♦️", "8♣️", "8♠️"],
+            ["7♠️", "7♣️", "6♦️"],
+            ["6♣️", "REGLES DE JEU"]
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-        return self.send_message(chat_id, "Choisis :", markup)
+        return self.send_message(chat_id, "Choisis une carte :", markup)
 
     # ---------- route ----------
     def handle_update(self, update: Dict[str, Any]) -> None:
@@ -57,5 +65,5 @@ class TelegramHandlers:
             self.send_message(chat_id, self.regles)
             return
         if text in self.transfo:
-            self.send_message(chat_id, f"LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {self.transfo[text]}")
-      
+            symb, nom = self.transfo[text]
+            self.send_message(chat_id, f"LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {symb} ({nom})")
