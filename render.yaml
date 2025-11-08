@@ -6,7 +6,7 @@ services:
     startCommand: python bot.py
     envVars:
       - key: BOT_TOKEN
-        sync: false
+        value: 7573497633:AAHk9K15yTCiJP-zruJrc9v8eK8I9XhjyH4
       - key: PORT
         value: 10000
         
