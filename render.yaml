@@ -1,41 +1,19 @@
 services:
   - type: web
-    name: cartes-bot                # Nom de ton service Render
-    env: python                     # Environnement Python
-    plan: free                      # Plan gratuit
+    name: cartes-bot
+    env: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:10000 --workers 1 --timeout 120 --log-level info main:app
-    
+
     envVars:
-      # --- Variables nécessaires à ton bot Telegram ---
-      - key: API_ID
-        value: "29177661"
-
-      - key: API_HASH
-        value: "a8639172fa8d35dbfd8ea46286d349ab"
-
-      - key: BOT_TOKEN              # Ton token Telegram (configuré manuellement depuis Render)
+      - key: BOT_TOKEN
         sync: false
-
-      - key: ADMIN_ID
-        value: "1190237801"
-
-      - key: RENDER_DEPLOYMENT
-        value: "true"
-
-      # --- Port utilisé par Gunicorn (Render l’attend sur 10000) ---
+      - key: WEBHOOK_URL
+        sync: false
       - key: PORT
         value: "10000"
 
-      # --- L’URL publique de ton application Render ---
-      # ⚠️ Doit être configurée depuis le tableau Render :
-      #     WEBHOOK_URL = WEBHOOK_URL=https://bot-novembre.onrender.com
-      # (sans le /webhook à la fin, car ton code l’ajoute automatiquement)
-      - key: WEBHOOK_URL
-        sync: false
-
-    # --- Vérifie la santé du service avec ce point d'accès ---
     healthCheckPath: /health
-
-    # --- Empêche les déploiements automatiques, tu le feras manuellement ---
     autoDeploy: false
+    
