@@ -1,25 +1,33 @@
-import json, logging, requests, os
-from typing import Dict, Any
+import json, logging, requests, os, time, re
+from datetime import datetime, timedelta
+from random import choice
+from typing import Dict, Any, List
+import yaml
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+LETTRES = "abcdefghijklmnopqrstuvwxyz"
+CHIFFRES = "0123456789"
+MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+LICENCE_YAML = "licences.yaml"
+ADMIN_PW = "kouame2025"
+
 class TelegramHandlers:
     def __init__(self, token: str):
-        self.token   = token
-        self.base_url= f"https://api.telegram.org/bot{token}"
-        # 10 cartes → nom français + symbole
+        self.token = token
+        self.base_url = f"https://api.telegram.org/bot{token}"
         self.transfo = {
             "10♦️": ("PIQUE", "♠️"),
             "10♠️": ("COEUR", "❤️"),
-            "9♣️":  ("COEUR", "❤️"),
-            "9♦️":  ("PIQUE", "♠️"),
-            "8♣️":  ("PIQUE", "♠️"),
-            "8♠️":  ("TREFLE", "♣️"),
-            "7♠️":  ("PIQUE", "♠️"),
-            "7♣️":  ("TREFLE", "♣️"),
-            "6♦️":  ("TREFLE", "♣️"),
-            "6♣️":  ("CARREAU", "♦️")
+            "9♣️": ("COEUR", "❤️"),
+            "9♦️": ("PIQUE", "♠️"),
+            "8♣️": ("PIQUE", "♠️"),
+            "8♠️": ("TREFLE", "♣️"),
+            "7♠️": ("PIQUE", "♠️"),
+            "7♣️": ("TREFLE", "♣️"),
+            "6♦️": ("TREFLE", "♣️"),
+            "6♣️": ("CARREAU", "♦️")
         }
         self.start_msg = (
             "🔰 SUIVRE CES CONSIGNES POUR CONNAÎTRE LA CARTE DANS LE JEU SUIVANT👇\n\n"
@@ -36,6 +44,106 @@ class TelegramHandlers:
             "5️⃣ ÉVITEZ D'ENREGISTRER UN COUPON : Quand vous enregistrez un coupon pour le partager , Vous augmentez vos chances de perdre\n\n\n"
             "🍾BON GAINS 🍾"
         )
+        self._ensure_yaml()
+
+    # ---------- YAML ----------
+    def _ensure_yaml(self):
+        if not os.path.exists(LICENCE_YAML):
+            data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
+            with open(LICENCE_YAML, "w", encoding="utf-8") as f:
+                yaml.dump(data, f)
+
+    def _load_yaml(self) -> Dict[str, List[str]]:
+        with open(LICENCE_YAML, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)["licences"]
+
+    def _save_yaml(self, data: Dict[str, List[str]]):
+        with open(LICENCE_YAML, "w", encoding="utf-8") as f:
+            yaml.dump({"licences": data}, f)
+
+    def _generate_code(self) -> str:
+        lettre = choice(LETTRES)
+        chiffre = ''.join(choice(CHIFFRES) for _ in range(3))
+        maj = choice(MAJ)
+        return f"{lettre}{chiffre}{maj}"
+
+    def _add_licence(self, duration: str) -> str:
+        data = self._load_yaml()
+        code = self._generate_code()
+        data[duration].append(code)
+        self._save_yaml(data)
+        return code
+
+    def _pop_licence(self, duration: str) -> str:
+        data = self._load_yaml()
+        if not data[duration]:
+            # génère une nouvelle si vide
+            code = self._add_licence(duration)
+            return code
+        code = data[duration].pop(0)
+        self._save_yaml(data)
+        return code
+
+    def _licence_valid(self, code: str) -> bool:
+        data = self._load_yaml()
+        for lst in data.values():
+            if code in lst:
+                return True
+        return False
+
+    def _remove_used(self, code: str):
+        data = self._load_yaml()
+        for lst in data.values():
+            if code in lst:
+                lst.remove(code)
+                break
+        self._save_yaml(data)
+
+    # ---------- LICENCE USER ----------
+    def _get_user_licence(self, user_id: int) -> Dict[str, Any]:
+        # stockage local user_licences.json
+        if not os.path.exists("user_licences.json"):
+            return {}
+        try:
+            with open("user_licences.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get(str(user_id), {})
+        except Exception:
+            return {}
+
+    def _save_user_licence(self, user_id: int, code: str, hours: int):
+        if not os.path.exists("user_licences.json"):
+            with open("user_licences.json", "w", encoding="utf-8") as f:
+                json.dump({}, f)
+        with open("user_licences.json", "r+", encoding="utf-8") as f:
+            data = json.load(f)
+            data[str(user_id)] = {
+                "code": code,
+                "hours": hours,
+                "used_at": datetime.utcnow().isoformat()
+            }
+            f.seek(0)
+            json.dump(data, f, indent=2)
+            f.truncate()
+
+    def _licence_expired(self, lic: Dict[str, Any]) -> bool:
+        if not lic:
+            return True
+        used_at = datetime.fromisoformat(lic["used_at"])
+        hours = lic["hours"]
+        expiry = used_at + timedelta(hours=hours)
+        return datetime.utcnow() > expiry
+
+    def _remaining_str(self, lic: Dict[str, Any]) -> str:
+        if self._licence_expired(lic):
+            return "⏰ Licence expirée"
+        used_at = datetime.fromisoformat(lic["used_at"])
+        hours = lic["hours"]
+        expiry = used_at + timedelta(hours=hours)
+        remaining = expiry - datetime.utcnow()
+        h, rem = divmod(int(remaining.total_seconds()), 3600)
+        m, s = divmod(rem, 60)
+        return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
 
     # ---------- API ----------
     def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
@@ -49,7 +157,7 @@ class TelegramHandlers:
             logger.error(f"send_message error : {e}")
             return False
 
-    # ---------- clavier 10 boutons ----------
+    # ---------- CLAVIERS ----------
     def send_keyboard(self, chat_id: int) -> bool:
         kb = [
             ["10♦️", "10♠️", "9♣️"],
@@ -60,19 +168,93 @@ class TelegramHandlers:
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         return self.send_message(chat_id, "Choisis la carte observée :", markup)
 
-    # ---------- route ----------
+    def send_admin_panel(self, chat_id: int):
+        data = self._load_yaml()
+        unused = {k: len(v) for k, v in data.items()}
+        lines = "\n".join([f"{d} : {nb} disp." for d, nb in unused.items()])
+        self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
+        kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"]]
+        markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+        self.send_message(chat_id, "Génération rapide :", markup)
+
+    # ---------- ROUTE ----------
     def handle_update(self, update: Dict[str, Any]) -> None:
         msg = update.get("message", {})
         text = msg.get("text", "")
         chat_id = msg["chat"]["id"]
+        user_id = msg["from"]["id"]
+
+        # 1) START → choix 1 ou 2
         if text == "/start":
-            self.send_message(chat_id, self.start_msg)
+            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
+            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+            self.send_message(chat_id, "🔰 Choisis :", markup)
+            return
+
+        # 2) Admin mot de passe
+        if text == "2️⃣ Administrateur":
+            self.send_message(chat_id, "Entrez le mot de passe administrateur :")
+            return
+        if text == ADMIN_PW:
+            self.send_admin_panel(chat_id)
+            return
+
+        # 3) Génération admin /lic 24h
+        if text and text.startswith("/lic "):
+            duration = text.split()[1]
+            if duration not in ["1h", "2h", "5h", "24h", "48h"]:
+                self.send_message(chat_id, "❌ Durée invalide.")
+                return
+            code = self._add_licence(duration)
+            self.send_message(chat_id, f"🔑 Licence générée : `{code}`\n\nDurée : {duration}")
+            return
+
+        # 4) Choix 1 : saisie licence
+        if text == "1️⃣ J’ai une licence":
+            self.send_message(chat_id, "Veuillez entrer votre licence :")
+            return
+
+        # 5) Vérification licence
+        if self._licence_valid(text):
+            lic_user = self._get_user_licence(user_id)
+            if lic_user and not self._licence_expired(lic_user):
+                self.send_message(chat_id, "✅ Licence déjà active.")
+                self.send_keyboard(chat_id)
+                return
+            if lic_user and self._licence_expired(lic_user):
+                self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.")
+                return
+            code = text
+            duration = None
+            data = self._load_yaml()
+            for d, lst in data.items():
+                if code in lst:
+                    duration = d
+                    break
+            if not duration:
+                self.send_message(chat_id, "❌ Licence introuvable.")
+                return
+            self._remove_used(code)
+            self._save_user_licence(user_id, code, int(duration.replace("h", "")))
+            self.send_message(chat_id, "✅ Licence acceptée !")
             self.send_keyboard(chat_id)
             return
+
+        # 6) Vérification expiration à chaque message
+        lic_user = self._get_user_licence(user_id)
+        if not lic_user or self._licence_expired(lic_user):
+            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.")
+            return
+
+        # 7) Temps restant
+        remaining = self._remaining_str(lic_user)
+        self.send_message(chat_id, remaining)
+
+        # 8) Commandes normales
         if text == "REGLES DE JEU":
             self.send_message(chat_id, self.regles)
             return
         if text in self.transfo:
             nom, symb = self.transfo[text]
             self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {nom} {symb}\n\n📍ASSURANCE 100%📍")
-                                                                                                    
+        
