@@ -29,7 +29,7 @@ services:
 
       # --- L’URL publique de ton application Render ---
       # ⚠️ Doit être configurée depuis le tableau Render :
-      #     WEBHOOK_URL = WEBHOOK_URL=https://bot-novembre-2.onrender.com
+      #     WEBHOOK_URL = WEBHOOK_URL=https://bot-novembre.onrender.com
       # (sans le /webhook à la fin, car ton code l’ajoute automatiquement)
       - key: WEBHOOK_URL
         sync: false
