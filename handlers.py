@@ -1,4 +1,4 @@
-   import json, logging, requests, os, time, re
+import json, logging, requests, os, time, re
 from datetime import datetime, timedelta
 from random import choice
 from typing import Dict, Any, List
@@ -12,7 +12,7 @@ CHIFFRES = "0123456789"
 MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 LICENCE_YAML = "licences.yaml"
 ADMIN_PW = "kouame2025"
-# VOTRE ID ADMINISTRATEUR a été ajouté ici pour la génération de licences
+# VOTRE ID ADMINISTRATEUR est bien inséré ici
 ADMIN_IDS = [1190237801] 
 
 class TelegramHandlers:
@@ -179,6 +179,7 @@ class TelegramHandlers:
 
         # Admin : /lic 24h (Vérification de l'ID Admin)
         if text and text.startswith("/lic "):
+            # L'utilisateur doit être dans la liste ADMIN_IDS pour passer ici
             if user_id not in ADMIN_IDS:
                  self.send_message(chat_id, "❌ Accès administrateur refusé.")
                  return
@@ -236,7 +237,7 @@ class TelegramHandlers:
                 return
             
             self._remove_used(code)
-            # CORRECTION DE L'ERREUR SYNTAXE : suppression d'une parenthèse fermante
+            # Correction de l'erreur SyntaxError
             self._save_user_licence(user_id, code, int(duration.replace("h", ""))) 
             
             self.send_message(chat_id, "✅ Licence acceptée !")
@@ -267,4 +268,3 @@ class TelegramHandlers:
             return
         
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-                          
