@@ -281,7 +281,7 @@ class TelegramHandlers:
                 return
             # Déplace vers user + retire de yaml
             self._remove_used(code)
-            self._save_user_licence(user_id, code, int(duration.replace("h", ""))))
+            self._save_user_licence(user_id, code, int(duration.replace("h", "")))
             self.send_message(chat_id, "✅ Licence acceptée !")
             remaining = self._remaining_str(self._get_user_licence(user_id))
             self.send_message(chat_id, remaining)
