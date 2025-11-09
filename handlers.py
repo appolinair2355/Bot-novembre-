@@ -12,21 +12,17 @@ CHIFFRES = "0123456789"
 MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 LICENCE_YAML = "licences.yaml"
 ADMIN_PW = "kouame2025"
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# VOTRE ID ADMINISTRATEUR est bien inséré ici
+ADMIN_IDS = [1190237801] 
 
 class TelegramHandlers:
-    def __init__(self):
+    def __init__(self, token: str):
+        self.token = token
+        self.base_url = f"https://api.telegram.org/bot{token}"
         self.transfo = {
-            "10♦️": ("PIQUE", "♠️"),
-            "10♠️": ("COEUR", "❤️"),
-            "9♣️": ("COEUR", "❤️"),
-            "9♦️": ("PIQUE", "♠️"),
-            "8♣️": ("PIQUE", "♠️"),
-            "8♠️": ("TREFLE", "♣️"),
-            "7♠️": ("PIQUE", "♠️"),
-            "7♣️": ("TREFLE", "♣️"),
-            "6♦️": ("TREFLE", "♣️"),
+            "10♦️": ("PIQUE", "♠️"), "10♠️": ("COEUR", "❤️"), "9♣️": ("COEUR", "❤️"),
+            "9♦️": ("PIQUE", "♠️"), "8♣️": ("PIQUE", "♠️"), "8♠️": ("TREFLE", "♣️"),
+            "7♠️": ("PIQUE", "♠️"), "7♣️": ("TREFLE", "♣️"), "6♦️": ("TREFLE", "♣️"),
             "6♣️": ("CARREAU", "♦️")
         }
         self.start_msg = (
@@ -46,8 +42,10 @@ class TelegramHandlers:
         )
         self._ensure_yaml()
         self.offset = 0
+        self.waiting_password = set()
+        self.waiting_licence = set()
 
-    # ---------- YAML ----------
+    # ---------- YAML (Méthodes de gestion de licences) ----------
     def _ensure_yaml(self):
         if not os.path.exists(LICENCE_YAML):
             data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
@@ -92,7 +90,7 @@ class TelegramHandlers:
                 break
         self._save_yaml(data)
 
-    # ---------- LICENCE USER ----------
+    # ---------- LICENCE USER (Méthodes de gestion d'accès utilisateur) ----------
     def _get_user_licence(self, user_id: int) -> Dict[str, Any]:
         if not os.path.exists("user_licences.json"):
             return {}
@@ -137,50 +135,63 @@ class TelegramHandlers:
         m, s = divmod(rem, 60)
         return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
 
-    # ---------- API ----------
+    # ---------- API (Utilise self.base_url) ----------
     def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
-        payload = {"chat_id": chat_id, "text": text}
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
         if markup:
             payload["reply_markup"] = markup
         try:
-            ok = requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10).json().get("ok", False)
-            return ok
+            r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
+            r.raise_for_status()
+            return r.json().get("ok", False)
         except Exception as e:
             logger.error(f"send_message error : {e}")
             return False
 
+    # ---------- CLAVIERS ----------
     def send_keyboard(self, chat_id: int) -> bool:
         kb = [
-            ["10♦️", "10♠️", "9♣️"],
-            ["9♦️", "8♣️", "8♠️"],
-            ["7♠️", "7♣️", "6♦️"],
-            ["6♣️", "REGLES DE JEU"]
+            ["10♦️", "10♠️", "9♣️"], ["9♦️", "8♣️", "8♠️"],
+            ["7♠️", "7♣️", "6♦️"], ["6♣️", "REGLES DE JEU"]
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-        msg = (
-            "🔰 SUIVRE CES CONSIGNES POUR CONNAÎTRE LA CARTE DANS LE JEU SUIVANT👇\n\n"
-            "🟠 Regarde la  première cartes du joueur \n"
-            "🟠 Tape la carte  dans le BOT\n"
-            "🟠 Parie sur la prédiction  sur le Joueur dans le Jeu Suivant \n\n\n"
-            "Rattrape 1 JEU"
-        )
+        msg = self.start_msg
         return self.send_message(chat_id, msg, markup)
 
-    # ---------- WEBHOOK ----------
+    def send_admin_panel(self, chat_id: int):
+        data = self._load_yaml()
+        unused = {k: len(v) for k, v in data.items()}
+        lines = "\n".join([f"**{d}** : {nb} disponible(s)" for d, nb in unused.items()]) 
+        self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
+        kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"]]
+        markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+        self.send_message(chat_id, "Génération rapide :", markup)
+
+    # ---------- ROUTE (handle_update) ----------
     def handle_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
+        if "text" not in msg or "chat" not in msg:
+             return
+
         text = msg.get("text", "")
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # Admin
+        # Admin : /lic 24h (Vérification de l'ID Admin)
         if text and text.startswith("/lic "):
+            # L'utilisateur doit être dans la liste ADMIN_IDS pour passer ici
+            if user_id not in ADMIN_IDS:
+                 self.send_message(chat_id, "❌ Accès administrateur refusé.")
+                 return
+            
             parts = text.split()
-            if len(parts) == 2 and parts[1] in ["1h", "2h", "5h", "24h", "48h"]:
-                code = self._add_licence(parts[1])
-                self.send_message(chat_id, f"🔑 Licence générée : `{code}`\nDurée : {parts[1]}")
-            else:
-                self.send_message(chat_id, "❌ Durée invalide.")
+            if len(parts) == 2:
+                duration = parts[1]
+                if duration in ["1h", "2h", "5h", "24h", "48h"]:
+                    code = self._add_licence(duration)
+                    self.send_message(chat_id, f"🔑 Licence générée : `{code}`\nDurée : {duration}")
+                else:
+                    self.send_message(chat_id, "❌ Durée invalide.")
             return
 
         # Start
@@ -213,6 +224,7 @@ class TelegramHandlers:
             if lic_user and self._licence_expired(lic_user):
                 self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.")
                 return
+            
             code = text
             duration = None
             data = self._load_yaml()
@@ -223,8 +235,11 @@ class TelegramHandlers:
             if not duration:
                 self.send_message(chat_id, "❌ Licence introuvable.")
                 return
+            
             self._remove_used(code)
-            self._save_user_licence(user_id, code, int(duration.replace("h", ""))))
+            # Correction de l'erreur SyntaxError
+            self._save_user_licence(user_id, code, int(duration.replace("h", ""))) 
+            
             self.send_message(chat_id, "✅ Licence acceptée !")
             remaining = self._remaining_str(self._get_user_licence(user_id))
             self.send_message(chat_id, remaining)
@@ -236,7 +251,7 @@ class TelegramHandlers:
         if not lic_user or self._licence_expired(lic_user):
             kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
             markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-            self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.", markup)
+            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.", markup)
             return
 
         # Temps restant
@@ -249,4 +264,8 @@ class TelegramHandlers:
             return
         if text in self.transfo:
             nom, symb = self.transfo[text]
-            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {nom} {symb}\n\n📍ASSURANCE 100%📍")
+            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{nom} {symb}**\n\n📍ASSURANCE 100%📍")
+            return
+        
+        self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
+        
