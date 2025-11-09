@@ -10,10 +10,11 @@ logger = logging.getLogger(__name__)
 LETTRES = "abcdefghijklmnopqrstuvwxyz"
 CHIFFRES = "0123456789"
 MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-LETTRES_KOUAME = "Kouame"
+LETTRES_KOUAME = "Kouame" # Lettres pour le format de licence
 LICENCE_YAML = "licences.yaml"
 ADMIN_PW = "kouame2025"
-ADMIN_IDS = [1190237801] 
+# Les deux IDs Administrateur pour la gestion des licences
+ADMIN_IDS = [1190237801, 1309049556] 
 
 class TelegramHandlers:
     def __init__(self, token: str):
@@ -44,7 +45,7 @@ class TelegramHandlers:
         self.offset = 0
         self.waiting_password = set()
         self.waiting_licence = set()
-        # self.user_message_log a été supprimé
+
 
     # ---------- YAML (Méthodes de gestion de licences) ----------
     def _ensure_yaml(self):
@@ -62,7 +63,7 @@ class TelegramHandlers:
             yaml.dump({"licences": data}, f)
 
     def _generate_code(self) -> str:
-        """Génère le nouveau format de licence (3 lettres, 3 chiffres, HH, 1 Maj, 1 lettre Kouame)."""
+        """Génère le format de licence : 3 lettres, 3 chiffres, HH, 1 Maj, 1 lettre Kouame."""
         part1 = ''.join(choice(MAJ) for _ in range(3))
         part2 = ''.join(choice(CHIFFRES) for _ in range(3))
         part3 = datetime.now().strftime("%H")
@@ -112,7 +113,7 @@ class TelegramHandlers:
             return {}
 
     def _remove_user_licence(self, user_id: int):
-        """Supprime la licence du fichier JSON (Licence expirée)."""
+        """Supprime la licence du fichier JSON (appelé après expiration)."""
         if not os.path.exists("user_licences.json"):
             return
         try:
@@ -160,7 +161,7 @@ class TelegramHandlers:
         m, s = divmod(rem, 60)
         return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
 
-    # ---------- API (Utilise self.base_url) ----------
+    # ---------- API ----------
     def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
         payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
         if markup:
@@ -168,7 +169,6 @@ class TelegramHandlers:
         try:
             r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
             r.raise_for_status()
-            # Logique d'enregistrement des IDs de message supprimée
             return r.json().get("ok", False)
         except Exception as e:
             logger.error(f"send_message error : {e}")
@@ -203,8 +203,6 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
         
-        # Logique d'enregistrement de l'ID de message utilisateur supprimée
-
         # Admin : /lic 24h (Vérification de l'ID Admin)
         if text and text.startswith("/lic "):
             if user_id not in ADMIN_IDS:
@@ -252,10 +250,11 @@ class TelegramHandlers:
             # Gestion du cas : Licence expirée
             if lic_user and self._licence_expired(lic_user):
                 self._remove_user_licence(user_id) 
-                self.send_message(chat_id, "🔒 Licence expirée. Veuillez acheter une nouvelle licence.")
+                # ❌ ÉTAPE 4: Refusée si expirée
+                self.send_message(chat_id, "🔒 Licence expirée. Veuillez acheter une nouvelle licence.") 
                 return
 
-            # Activation de la nouvelle licence
+            # Activation de la nouvelle licence (ÉTAPE 2)
             code = text
             duration = None
             data = self._load_yaml()
@@ -279,7 +278,9 @@ class TelegramHandlers:
         # VÉRIFICATION D'EXPIRATION ET BLOCAGE
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
-            # L'appel à _delete_user_messages est supprimé ici
+            # ÉTAPE 3: Blocage total si licence expirée ou non existante
+            if lic_user and self._licence_expired(lic_user):
+                self._remove_user_licence(user_id) # S'assure de nettoyer l'entrée expirée
             
             # Blocage total et demande de licence
             kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
@@ -301,4 +302,3 @@ class TelegramHandlers:
             return
         
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-        
