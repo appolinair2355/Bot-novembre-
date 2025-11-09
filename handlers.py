@@ -46,6 +46,8 @@ class TelegramHandlers:
         )
         self._ensure_yaml()
         self.offset = 0
+        self.waiting_password = set()
+        self.waiting_licence = set()
 
     # ---------- YAML ----------
     def _ensure_yaml(self):
@@ -170,7 +172,7 @@ class TelegramHandlers:
     def send_admin_panel(self, chat_id: int):
         data = self._load_yaml()
         unused = {k: len(v) for k, v in data.items()}
-        lines = "\n".join([f"{d} : {nb} disp." for d, nb in unused.items()])
+        lines = "\n".join([f"{d} : {nb} disponible(s)" for d, nb in unused.items()])
         self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
         kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"]]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
@@ -193,7 +195,7 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # Admin
+        # Admin : /lic 24h
         if text and text.startswith("/lic "):
             parts = text.split()
             if len(parts) == 2:
@@ -246,14 +248,14 @@ class TelegramHandlers:
                 self.send_message(chat_id, "❌ Licence introuvable.")
                 return
             self._remove_used(code)
-            self._save_user_licence(user_id, code, int(duration.replace("h", "")))
+            self._save_user_licence(user_id, code, int(duration.replace("h", ""))))
             self.send_message(chat_id, "✅ Licence acceptée !")
             remaining = self._remaining_str(self._get_user_licence(user_id))
             self.send_message(chat_id, remaining)
             self.send_keyboard(chat_id)
             return
 
-        # Vérification expiration
+        # Vérification expiration à chaque message
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
             kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
