@@ -1,4 +1,4 @@
-import json, logging, requests, os, time, re
+   import json, logging, requests, os, time, re
 from datetime import datetime, timedelta
 from random import choice
 from typing import Dict, Any, List
@@ -12,11 +12,10 @@ CHIFFRES = "0123456789"
 MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 LICENCE_YAML = "licences.yaml"
 ADMIN_PW = "kouame2025"
-# ADMIN_IDS est une bonne pratique de sécurité, ajoutez votre ID numérique
-ADMIN_IDS = [] 
+# VOTRE ID ADMINISTRATEUR a été ajouté ici pour la génération de licences
+ADMIN_IDS = [1190237801] 
 
 class TelegramHandlers:
-    # Changement: La classe prend le token pour construire l'URL de base
     def __init__(self, token: str):
         self.token = token
         self.base_url = f"https://api.telegram.org/bot{token}"
@@ -42,32 +41,26 @@ class TelegramHandlers:
             "🍾BON GAINS 🍾"
         )
         self._ensure_yaml()
-        # Ces attributs sont inutiles dans cette structure de handlers, 
-        # mais je les conserve au cas où vous en ayez besoin ailleurs.
         self.offset = 0
         self.waiting_password = set()
         self.waiting_licence = set()
 
-    # ---------- YAML (Méthodes inchangées) ----------
+    # ---------- YAML (Méthodes de gestion de licences) ----------
     def _ensure_yaml(self):
-        # ... (reste inchangé) ...
         if not os.path.exists(LICENCE_YAML):
             data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
             with open(LICENCE_YAML, "w", encoding="utf-8") as f:
                 yaml.dump(data, f)
 
     def _load_yaml(self) -> Dict[str, List[str]]:
-        # ... (reste inchangé) ...
         with open(LICENCE_YAML, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)["licences"]
 
     def _save_yaml(self, data: Dict[str, List[str]]):
-        # ... (reste inchangé) ...
         with open(LICENCE_YAML, "w", encoding="utf-8") as f:
             yaml.dump({"licences": data}, f)
 
     def _add_licence(self, duration: str) -> str:
-        # ... (reste inchangé) ...
         data = self._load_yaml()
         code = f"{choice(LETTRES)}{''.join(choice(CHIFFRES) for _ in range(3))}{choice(MAJ)}"
         data[duration].append(code)
@@ -75,7 +68,6 @@ class TelegramHandlers:
         return code
 
     def _pop_licence(self, duration: str) -> str:
-        # ... (reste inchangé) ...
         data = self._load_yaml()
         if not data[duration]:
             return self._add_licence(duration)
@@ -84,7 +76,6 @@ class TelegramHandlers:
         return code
 
     def _licence_valid(self, code: str) -> bool:
-        # ... (reste inchangé) ...
         data = self._load_yaml()
         for lst in data.values():
             if code in lst:
@@ -92,7 +83,6 @@ class TelegramHandlers:
         return False
 
     def _remove_used(self, code: str):
-        # ... (reste inchangé) ...
         data = self._load_yaml()
         for lst in data.values():
             if code in lst:
@@ -100,9 +90,8 @@ class TelegramHandlers:
                 break
         self._save_yaml(data)
 
-    # ---------- LICENCE USER (Méthodes inchangées) ----------
+    # ---------- LICENCE USER (Méthodes de gestion d'accès utilisateur) ----------
     def _get_user_licence(self, user_id: int) -> Dict[str, Any]:
-        # ... (reste inchangé) ...
         if not os.path.exists("user_licences.json"):
             return {}
         try:
@@ -113,7 +102,6 @@ class TelegramHandlers:
             return {}
 
     def _save_user_licence(self, user_id: int, code: str, hours: int):
-        # ... (reste inchangé) ...
         if not os.path.exists("user_licences.json"):
             with open("user_licences.json", "w", encoding="utf-8") as f:
                 json.dump({}, f)
@@ -129,7 +117,6 @@ class TelegramHandlers:
             f.truncate()
 
     def _licence_expired(self, lic: Dict[str, Any]) -> bool:
-        # ... (reste inchangé) ...
         if not lic:
             return True
         used_at = datetime.fromisoformat(lic["used_at"])
@@ -138,7 +125,6 @@ class TelegramHandlers:
         return datetime.utcnow() > expiry
 
     def _remaining_str(self, lic: Dict[str, Any]) -> str:
-        # ... (reste inchangé) ...
         if self._licence_expired(lic):
             return "⏰ Licence expirée"
         used_at = datetime.fromisoformat(lic["used_at"])
@@ -149,23 +135,21 @@ class TelegramHandlers:
         m, s = divmod(rem, 60)
         return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
 
-    # ---------- API ----------
+    # ---------- API (Utilise self.base_url) ----------
     def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
-        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"} # Ajout de Markdown
+        payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
         if markup:
             payload["reply_markup"] = markup
         try:
-            # Utilisation de self.base_url
-            r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10) 
+            r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
             r.raise_for_status()
             return r.json().get("ok", False)
         except Exception as e:
             logger.error(f"send_message error : {e}")
             return False
 
-    # ---------- CLAVIERS (Méthodes inchangées) ----------
+    # ---------- CLAVIERS ----------
     def send_keyboard(self, chat_id: int) -> bool:
-        # ... (reste inchangé) ...
         kb = [
             ["10♦️", "10♠️", "9♣️"], ["9♦️", "8♣️", "8♠️"],
             ["7♠️", "7♣️", "6♦️"], ["6♣️", "REGLES DE JEU"]
@@ -175,33 +159,27 @@ class TelegramHandlers:
         return self.send_message(chat_id, msg, markup)
 
     def send_admin_panel(self, chat_id: int):
-        # ... (reste inchangé) ...
         data = self._load_yaml()
         unused = {k: len(v) for k, v in data.items()}
-        lines = "\n".join([f"**{d}** : {nb} disponible(s)" for d, nb in unused.items()]) # Bolding pour Markdown
+        lines = "\n".join([f"**{d}** : {nb} disponible(s)" for d, nb in unused.items()]) 
         self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
         kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"]]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Génération rapide :", markup)
 
-    # ---------- POLLING (Méthodes retirées car elles appartiennent à bot.py) ----------
-    # La méthode get_updates ne devrait pas être ici, elle est dans TelegramBot
-    # La méthode run ne devrait pas être ici, elle est dans bot.py ou main.py
-    
-    # ---------- ROUTE (process_update renommé en handle_update pour la cohérence) ----------
+    # ---------- ROUTE (handle_update) ----------
     def handle_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
-        # Vérification si c'est un message texte
         if "text" not in msg or "chat" not in msg:
              return
 
         text = msg.get("text", "")
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
-        
-        # Admin : /lic 24h (Ajout du contrôle d'ID pour plus de sécurité)
+
+        # Admin : /lic 24h (Vérification de l'ID Admin)
         if text and text.startswith("/lic "):
-            if not ADMIN_IDS or user_id not in ADMIN_IDS:
+            if user_id not in ADMIN_IDS:
                  self.send_message(chat_id, "❌ Accès administrateur refusé.")
                  return
             
@@ -246,7 +224,6 @@ class TelegramHandlers:
                 self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.")
                 return
             
-            # Logique d'activation
             code = text
             duration = None
             data = self._load_yaml()
@@ -289,6 +266,5 @@ class TelegramHandlers:
             self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{nom} {symb}**\n\n📍ASSURANCE 100%📍")
             return
         
-        # Réponse par défaut
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-                                 
+                          
