@@ -12,18 +12,21 @@ CHIFFRES = "0123456789"
 MAJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 LICENCE_YAML = "licences.yaml"
 ADMIN_PW = "kouame2025"
-# ID de l'administrateur (AJOUTEZ VOTRE ID pour une sécurité minimale !)
-ADMIN_IDS = [123456789] # REMPLACER par l'ID numérique de votre compte Telegram
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 class TelegramHandlers:
-    def __init__(self, token: str):
-        self.token = token
-        self.base_url = f"https://api.telegram.org/bot{token}"
-        # ... (Autres initialisations : self.transfo, self.start_msg, self.regles) ...
+    def __init__(self):
         self.transfo = {
-            "10♦️": ("PIQUE", "♠️"), "10♠️": ("COEUR", "❤️"), "9♣️": ("COEUR", "❤️"),
-            "9♦️": ("PIQUE", "♠️"), "8♣️": ("PIQUE", "♠️"), "8♠️": ("TREFLE", "♣️"),
-            "7♠️": ("PIQUE", "♠️"), "7♣️": ("TREFLE", "♣️"), "6♦️": ("TREFLE", "♣️"),
+            "10♦️": ("PIQUE", "♠️"),
+            "10♠️": ("COEUR", "❤️"),
+            "9♣️": ("COEUR", "❤️"),
+            "9♦️": ("PIQUE", "♠️"),
+            "8♣️": ("PIQUE", "♠️"),
+            "8♠️": ("TREFLE", "♣️"),
+            "7♠️": ("PIQUE", "♠️"),
+            "7♣️": ("TREFLE", "♣️"),
+            "6♦️": ("TREFLE", "♣️"),
             "6♣️": ("CARREAU", "♦️")
         }
         self.start_msg = (
@@ -42,53 +45,30 @@ class TelegramHandlers:
             "🍾BON GAINS 🍾"
         )
         self._ensure_yaml()
+        self.offset = 0
 
-
-    # ---------- NOUVELLES METHODES D'ENVOI ----------
-    def send_message(self, chat_id: int, text: str, reply_markup=None) -> bool:
-        """Envoie un message à l'API Telegram."""
-        payload = {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "Markdown", 
-        }
-        if reply_markup:
-            payload["reply_markup"] = reply_markup
-        
-        try:
-            r = requests.post(f"{self.base_url}/sendMessage", json=payload, timeout=10)
-            r.raise_for_status() 
-            return r.json().get("ok", False)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Erreur lors de l'envoi du message au chat {chat_id}: {e}")
-            return False
-
-    def send_admin_panel(self, chat_id: int):
-        """Affiche le panneau d'administration."""
-        licences = self._load_yaml()
-        status_msg = "\n".join([f"**{k}**: {len(v)} licences disponibles" for k, v in licences.items()])
-        msg = f"**Panneau Admin** 👑\n\n{status_msg}\n\nUtilisez `/lic 1h`, `/lic 24h`, etc., pour générer une licence."
-        self.send_message(chat_id, msg)
-
-    # ---------- YAML (méthodes inchangées) ----------
+    # ---------- YAML ----------
     def _ensure_yaml(self):
         if not os.path.exists(LICENCE_YAML):
             data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
             with open(LICENCE_YAML, "w", encoding="utf-8") as f:
                 yaml.dump(data, f)
+
     def _load_yaml(self) -> Dict[str, List[str]]:
         with open(LICENCE_YAML, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)["licences"]
+
     def _save_yaml(self, data: Dict[str, List[str]]):
         with open(LICENCE_YAML, "w", encoding="utf-8") as f:
             yaml.dump({"licences": data}, f)
+
     def _add_licence(self, duration: str) -> str:
         data = self._load_yaml()
         code = f"{choice(LETTRES)}{''.join(choice(CHIFFRES) for _ in range(3))}{choice(MAJ)}"
         data[duration].append(code)
         self._save_yaml(data)
         return code
-    # ... (les autres méthodes YAML et LICENCE USER restent inchangées) ...
+
     def _pop_licence(self, duration: str) -> str:
         data = self._load_yaml()
         if not data[duration]:
@@ -96,12 +76,14 @@ class TelegramHandlers:
         code = data[duration].pop(0)
         self._save_yaml(data)
         return code
+
     def _licence_valid(self, code: str) -> bool:
         data = self._load_yaml()
         for lst in data.values():
             if code in lst:
                 return True
         return False
+
     def _remove_used(self, code: str):
         data = self._load_yaml()
         for lst in data.values():
@@ -109,6 +91,8 @@ class TelegramHandlers:
                 lst.remove(code)
                 break
         self._save_yaml(data)
+
+    # ---------- LICENCE USER ----------
     def _get_user_licence(self, user_id: int) -> Dict[str, Any]:
         if not os.path.exists("user_licences.json"):
             return {}
@@ -118,6 +102,7 @@ class TelegramHandlers:
             return data.get(str(user_id), {})
         except Exception:
             return {}
+
     def _save_user_licence(self, user_id: int, code: str, hours: int):
         if not os.path.exists("user_licences.json"):
             with open("user_licences.json", "w", encoding="utf-8") as f:
@@ -125,12 +110,14 @@ class TelegramHandlers:
         with open("user_licences.json", "r+", encoding="utf-8") as f:
             data = json.load(f)
             data[str(user_id)] = {
-                "code": code, "hours": hours,
+                "code": code,
+                "hours": hours,
                 "used_at": datetime.utcnow().isoformat()
             }
             f.seek(0)
             json.dump(data, f, indent=2)
             f.truncate()
+
     def _licence_expired(self, lic: Dict[str, Any]) -> bool:
         if not lic:
             return True
@@ -138,6 +125,7 @@ class TelegramHandlers:
         hours = lic["hours"]
         expiry = used_at + timedelta(hours=hours)
         return datetime.utcnow() > expiry
+
     def _remaining_str(self, lic: Dict[str, Any]) -> str:
         if self._licence_expired(lic):
             return "⏰ Licence expirée"
@@ -149,6 +137,18 @@ class TelegramHandlers:
         m, s = divmod(rem, 60)
         return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
 
+    # ---------- API ----------
+    def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
+        payload = {"chat_id": chat_id, "text": text}
+        if markup:
+            payload["reply_markup"] = markup
+        try:
+            ok = requests.post(f"{BASE_URL}/sendMessage", json=payload, timeout=10).json().get("ok", False)
+            return ok
+        except Exception as e:
+            logger.error(f"send_message error : {e}")
+            return False
+
     # ---------- CLAVIERS ----------
     def send_keyboard(self, chat_id: int) -> bool:
         kb = [
@@ -158,29 +158,61 @@ class TelegramHandlers:
             ["6♣️", "REGLES DE JEU"]
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-        msg = self.start_msg
+        msg = (
+            "🔰 SUIVRE CES CONSIGNES POUR CONNAÎTRE LA CARTE DANS LE JEU SUIVANT👇\n\n"
+            "🟠 Regarde la  première cartes du joueur \n"
+            "🟠 Tape la carte  dans le BOT\n"
+            "🟠 Parie sur la prédiction  sur le Joueur dans le Jeu Suivant \n\n\n"
+            "Rattrape 1 JEU"
+        )
         return self.send_message(chat_id, msg, markup)
 
-    # ---------- ROUTE (handle_update) ----------
-    def handle_update(self, update: Dict[str, Any]) -> None:
+    def send_admin_panel(self, chat_id: int):
+        data = self._load_yaml()
+        unused = {k: len(v) for k, v in data.items()}
+        lines = "\n".join([f"{d} : {nb} disp." for d, nb in unused.items()])
+        self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
+        kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"]]
+        markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+        self.send_message(chat_id, "Génération rapide :", markup)
+
+    # ---------- POLLING ----------
+    def get_updates(self, offset: int) -> List[Dict[str, Any]]:
+        url = f"{BASE_URL}/getUpdates"
+        payload = {"offset": offset, "timeout": 30}
+        try:
+            resp = requests.post(url, json=payload, timeout=35).json()
+            return resp.get("result", [])
+        except Exception as e:
+            logger.error(f"getUpdates error : {e}")
+            return []
+
+    def process_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
-        
-        # Vérification essentielle: on ne traite que les messages textes
-        if "text" not in msg or "chat" not in msg:
-             return
-             
         text = msg.get("text", "")
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
-        
-        # 1) START → choix 1 ou 2
+
+        # Admin
+        if text and text.startswith("/lic "):
+            parts = text.split()
+            if len(parts) == 2:
+                duration = parts[1]
+                if duration in ["1h", "2h", "5h", "24h", "48h"]:
+                    code = self._add_licence(duration)
+                    self.send_message(chat_id, f"🔑 Licence générée : `{code}`\nDurée : {duration}")
+                else:
+                    self.send_message(chat_id, "❌ Durée invalide.")
+            return
+
+        # Start
         if text == "/start":
             kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
             markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
             self.send_message(chat_id, "🔰 Choisis :", markup)
             return
 
-        # 2) Admin mot de passe
+        # Admin mot de passe
         if text == "2️⃣ Administrateur":
             self.send_message(chat_id, "Entrez le mot de passe administrateur :")
             return
@@ -188,30 +220,21 @@ class TelegramHandlers:
             self.send_admin_panel(chat_id)
             return
 
-        # 3) Génération admin /lic 24h
-        if text and text.startswith("/lic ") and user_id in ADMIN_IDS:
-            duration = text.split()[1]
-            if duration not in ["1h", "2h", "5h", "24h", "48h"]:
-                self.send_message(chat_id, "❌ Durée invalide.")
-                return
-            code = self._add_licence(duration)
-            self.send_message(chat_id, f"🔑 Licence générée : `{code}`\n\nDurée : {duration}")
-            return
-        
-        # 4) Choix 1 : saisie licence
+        # Choix 1 : saisie licence
         if text == "1️⃣ J’ai une licence":
             self.send_message(chat_id, "Veuillez entrer votre licence :")
             return
 
-        # 5) Vérification licence (Vérifie si le texte est un code de licence)
+        # Vérification licence
         if self._licence_valid(text):
             lic_user = self._get_user_licence(user_id)
             if lic_user and not self._licence_expired(lic_user):
                 self.send_message(chat_id, "✅ Licence déjà active.")
                 self.send_keyboard(chat_id)
                 return
-            
-            # (Le reste de votre logique de validation/sauvegarde de licence)
+            if lic_user and self._licence_expired(lic_user):
+                self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.")
+                return
             code = text
             duration = None
             data = self._load_yaml()
@@ -219,12 +242,9 @@ class TelegramHandlers:
                 if code in lst:
                     duration = d
                     break
-            
             if not duration:
-                # Cette ligne ne devrait pas être atteinte si _licence_valid est True, mais par sécurité
-                self.send_message(chat_id, "❌ Licence introuvable.") 
+                self.send_message(chat_id, "❌ Licence introuvable.")
                 return
-                
             self._remove_used(code)
             self._save_user_licence(user_id, code, int(duration.replace("h", "")))
             self.send_message(chat_id, "✅ Licence acceptée !")
@@ -233,25 +253,33 @@ class TelegramHandlers:
             self.send_keyboard(chat_id)
             return
 
-        # 6) Vérification expiration à chaque message
+        # Vérification expiration
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
-            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.")
+            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"]]
+            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+            self.send_message(chat_id, "🔒 Licence expirée. Achetez une nouvelle.", markup)
             return
 
-        # 7) Temps restant (affiché après la validation de la licence)
+        # Temps restant
         remaining = self._remaining_str(lic_user)
         self.send_message(chat_id, remaining)
 
-        # 8) Commandes normales (Prédictions et Règles)
+        # Commandes normales
         if text == "REGLES DE JEU":
             self.send_message(chat_id, self.regles)
             return
         if text in self.transfo:
             nom, symb = self.transfo[text]
-            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{nom} {symb}**\n\n📍ASSURANCE 100%📍")
-            return
-            
-        # 9) Réponse par défaut
-        self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-        
+            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : {nom} {symb}\n\n📍ASSURANCE 100%📍")
+
+    # ---------- RUN ----------
+    def run(self):
+        logger.info("🚀 Démarrage du bot en mode polling…")
+        self.offset = 0
+        while True:
+            updates = self.get_updates(self.offset)
+            for upd in updates:
+                self.process_update(upd)
+                self.offset = upd["update_id"] + 1
+            time.sleep(2)
