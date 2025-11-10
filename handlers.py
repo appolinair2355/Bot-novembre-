@@ -20,7 +20,7 @@ TRANSFO_CONFIG = "transfo_config.json" # Fichier pour les correspondances des ca
 ADMIN_PW = "kouame2025"
 UPDATE_PW = "arrow2025" 
 # IDs des administrateurs autorisés à la MISE À JOUR (double sécurité)
-ADMIN_IDS = [1190237801, 1309049556] 
+ADMIN_IDS = [1190237801, 1309049556, 5622847726] 
 
 # Constantes pour les états d'édition
 STATE_EDIT_CARD = 1
