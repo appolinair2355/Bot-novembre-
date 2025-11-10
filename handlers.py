@@ -302,6 +302,9 @@ class TelegramHandlers:
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Choisissez la carte de départ à modifier (actuellement):", markup)
+# FIN DE LA PARTIE 1
+
+# Fichier: handlers.py (Suite, à partir de la méthode handle_update)
 
     # ---------- ROUTE (handle_update) ----------
     def handle_update(self, update: Dict[str, Any]):
@@ -402,54 +405,6 @@ class TelegramHandlers:
                     f"et le nouveau résultat pour ce bouton clavier est : **{display_result}**\n\n"
                 )
                 
-                kb = [["✅ ENREGISTRER"], ["❌ ANNULER"]]
-                markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-                self.send_message(chat_id, "Si cette information est correcte, confirmez :", markup)
-                return
-
-            # Si on arrive ici, l'état est actif mais le message n'est pas géré par l'étape courante
-            self.send_message(chat_id, "Veuillez terminer votre action en cours (édition).")
-            return
-
-
-        # --- ROUTAGE PRINCIPAL ---
-
-        # GESTION DES BOUTONS DE L'ÉTAPE FINALE D'ÉDITION
-        if text == "✅ ENREGISTRER" and user_id in self.editing_state:
-            state = self.editing_state[user_id]
-            
-            # Vérification de sécurité
-            if 'original_card' not in state or 'new_card' not in state or 'new_result' not in state:
-                del self.editing_state[user_id]
-                self.send_message(chat_id, "❌ Erreur de session. Veuillez recommencer la modification depuis le début.")
-                return
-
-            # Exécution de la sauvegarde
-            if state['original_card'] in self.transfo:
-                del self.transfo[state['original_card']] 
-            self.transfo[state['new_card']] = tuple(state['new_result'])
-            self._save_transfo_config() # <-- Met à jour self.last_updated_str
-            
-            del self.editing_state[user_id] # Nettoyage de l'état (les boutons disparaissent)
-            
-            # Affichage du message de succès avec la date de mise à jour
-            msg = (
-                f"✅ Clavier mis à jour et enregistré !\n"
-                f"_Date de modification : {self.last_updated_str}_\n\n"
-                f"Utilisez le bouton `⬅️ Retour au Menu` ci-dessous pour continuer."
-            )
-            
-            # Remplacement du clavier de confirmation par le clavier de navigation
-            kb = [["⬅️ Retour au Menu"]] 
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-            self.send_message(chat_id, msg, markup)
-            return
-
-        if text == "❌ ANNULER" and user_id in self.editing_state:
-            del self.editing_state[user_id]
-            self.send_message(chat_id, "❌ Modification annulée. Utilisez `/start` pour revenir au menu principal.")
-            
-
                 kb = [["✅ ENREGISTRER"], ["❌ ANNULER"]]
                 markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
                 self.send_message(chat_id, "Si cette information est correcte, confirmez :", markup)
@@ -663,3 +618,4 @@ class TelegramHandlers:
             return
         
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
+        
