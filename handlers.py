@@ -71,7 +71,7 @@ class TelegramHandlers:
         self.offset = 0
         self.waiting_password = set() 
         self.waiting_update_pw = set() 
-        self.waiting_licence_code = set() 
+        self.waiting_licence_code = set()
         self.editing_state = {} 
 
 
@@ -316,7 +316,6 @@ class TelegramHandlers:
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Choisissez la carte de départ à modifier (actuellement):", markup)
-
     # ROUTE
     def handle_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
@@ -327,25 +326,59 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # 1. GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
+        # 1. GESTION DU NETTOYAGE (PRIORITÉ MAX)
+        if text == "/start" or text == "⬅️ Retour au Menu":
+            # NETTOYAGE COMPLET DES ÉTATS D'ATTENTE ET D'ÉDITION
+            self.waiting_password.discard(user_id)
+            self.waiting_update_pw.discard(user_id)
+            self.waiting_licence_code.discard(user_id)
+            self.editing_state.pop(user_id, None) 
+            
+            self._send_start_menu(chat_id)
+            return
+
+        # 2. GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ HAUTE)
         if user_id in self.editing_state:
             state = self.editing_state[user_id]
             current_step = state['step']
             
-            # Gère l'annulation / retour au menu
-            if text in ["❌ ANNULER", "⬅️ Retour au Menu"]:
+            # --- SOUS-FLUX ENREGISTRER / ANNULER ---
+            if text == "❌ ANNULER":
                 del self.editing_state[user_id]
                 self.send_message(chat_id, "❌ Modification annulée. Retour au panneau de mise à jour.")
                 self.send_update_panel(chat_id) 
                 return 
 
-            if text == "/start":
-                del self.editing_state[user_id]
-                self.send_message(chat_id, "❌ Action annulée. Retour au menu principal.")
-                self._send_start_menu(chat_id)
+            # CORRECTION : Traitement du clic ENREGISTRER
+            if text == "✅ ENREGISTRER" and current_step == STATE_CONFIRM:
+                original_card = state['original_card']
+                new_card = state['new_card']
+                new_result = tuple(state['new_result'])
+                
+                # Logique d'enregistrement (suppression de l'ancienne carte si le nom change)
+                if original_card != new_card and original_card in self.transfo:
+                    del self.transfo[original_card] 
+                
+                self.transfo[new_card] = new_result
+                
+                self._save_transfo_config()
+                
+                del self.editing_state[user_id] 
+                
+                msg = (
+                    f"✅ Clavier mis à jour et enregistré !\n"
+                    f"_Date de modification : {self.last_updated_str}_\n\n"
+                    f"Utilisez le bouton `⬅️ Retour au Menu` ci-dessous pour continuer."
+                )
+                
+                kb = [["⬅️ Retour au Menu"]] 
+                markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+                self.send_message(chat_id, msg, markup)
                 return
+
+            # --- FLUX DES ÉTAPES DE SAISIE ---
             
-            # STATE_EDIT_CARD
+            # STATE_EDIT_CARD (Attente de la sélection de carte existante)
             if current_step == STATE_EDIT_CARD:
                 
                 if text in self.transfo.keys():
@@ -386,11 +419,12 @@ class TelegramHandlers:
 
                 state['new_card'] = text 
                 state['step'] = STATE_CONFIRM
-                self.send_message(chat_id, f"OK. Entrez le **nouveau résultat** de la prédiction (ex: TRÈFLE ♣️ ou Dame Q) :", markup='{"remove_keyboard": true}')
+                self.send_message(chat_id, f"OK. Entrez le **nouveau résultat** de la prédiction (ex: TREFLE ♣️ ou Dame Q) :", markup='{"remove_keyboard": true}')
                 return
 
-            # STATE_CONFIRM (Saisie du Nouveau Résultat et Confirmation Finale)
+            # STATE_CONFIRM (Saisie du Nouveau Résultat)
             elif current_step == STATE_CONFIRM:
+                # L'utilisateur vient de saisir le résultat (ce n'est pas "✅ ENREGISTRER" qui est géré plus haut)
                 parts = text.split()
                 if not parts:
                     self.send_message(chat_id, "Entrée vide. Veuillez entrer le NOUVEAU résultat de prédiction.")
@@ -420,13 +454,7 @@ class TelegramHandlers:
             return
 
 
-        # 2. ROUTAGE DES COMMANDES HAUT NIVEAU (En dehors du mode Édition)
-
-        # ENREGISTRER (Finalisation de l'édition)
-        if text == "✅ ENREGISTRER" and user_id in self.editing_state:
-            # Cette partie a été déplacée plus haut dans le bloc if user_id in self.editing_state 
-            # pour assurer que l'enregistrement est traité dans le bon contexte.
-            pass # Cette ligne est ici comme marqueur, mais le traitement réel est au-dessus.
+        # 3. ROUTAGE DES COMMANDES HAUT NIVEAU (ADMIN - hors édition)
 
         # Logique de Restauration des Cartes (Admin)
         if text == "🔄 RESTAURER" and user_id in ADMIN_IDS:
@@ -455,26 +483,11 @@ class TelegramHandlers:
                 return
 
 
-        # Start (Menu principal)
-        if text == "/start" or text == "⬅️ Retour au Menu":
-            # NETTOYAGE COMPLET DES ÉTATS D'ATTENTE
-            self.waiting_password.discard(user_id)
-            self.waiting_update_pw.discard(user_id)
-            self.waiting_licence_code.discard(user_id)
-            self.editing_state.pop(user_id, None) 
-            
-            self._send_start_menu(chat_id)
-            return
-
         # ====================================================================
         # COMMANDE 3: MISE À JOUR (3️⃣ Mise à jour)
         # ====================================================================
         if text == "3️⃣ Mise à jour":
             if user_id in ADMIN_IDS:
-                # Nettoyage des autres états
-                self.waiting_password.discard(user_id)
-                self.waiting_licence_code.discard(user_id)
-
                 self.waiting_update_pw.add(user_id)
                 
                 kb = [["⬅️ Retour au Menu"]]
@@ -487,24 +500,17 @@ class TelegramHandlers:
         # Vérification du Mot de passe Mise à Jour (Strict)
         if user_id in self.waiting_update_pw:
             self.waiting_update_pw.remove(user_id)
-            
-            if text == "⬅️ Retour au Menu":
-                 self._send_start_menu(chat_id)
-                 return
+            # Pas besoin de vérifier "⬅️ Retour au Menu" car c'est géré en priorité 1
 
-            if user_id not in ADMIN_IDS:
-                self.send_message(chat_id, "❌ Accès refusé.")
-                return
-
-            if text == UPDATE_PW:
-                # Initialisation de l'état d'édition pour le flux "Mise à jour"
-                self.editing_state[user_id] = {'step': STATE_EDIT_CARD, 'original_card': None}
+            if text == UPDATE_PW and user_id in ADMIN_IDS:
+                # Initialisation de l'état d'édition
+                self.editing_state[user_id] = {'step': STATE_EDIT_CARD, 'original_card': None, 'new_result': None, 'new_card': None}
                 
                 self.send_message(chat_id, "✅ Mot de passe correct. **Mode Édition activé.**")
                 self.send_update_panel(chat_id) 
                 return
             else:
-                self.send_message(chat_id, "❌ Mot de passe incorrect. Utilisez le menu pour recommencer.")
+                self.send_message(chat_id, "❌ Mot de passe incorrect.")
                 self._send_start_menu(chat_id)
                 return
 
@@ -512,10 +518,6 @@ class TelegramHandlers:
         # COMMANDE 2: ADMINISTRATEUR (2️⃣ Administrateur)
         # ====================================================================
         if text == "2️⃣ Administrateur":
-            # Nettoyage des autres états
-            self.waiting_update_pw.discard(user_id)
-            self.waiting_licence_code.discard(user_id)
-            
             self.waiting_password.add(user_id)
             
             kb = [["⬅️ Retour au Menu"]]
@@ -527,15 +529,11 @@ class TelegramHandlers:
         if user_id in self.waiting_password:
             self.waiting_password.remove(user_id)
             
-            if text == "⬅️ Retour au Menu":
-                 self._send_start_menu(chat_id)
-                 return
-
             if text == ADMIN_PW:
                 self.send_admin_panel(chat_id)
                 return
             else:
-                self.send_message(chat_id, "❌ Mot de passe administrateur incorrect. Utilisez le menu pour recommencer.")
+                self.send_message(chat_id, "❌ Mot de passe administrateur incorrect.")
                 self._send_start_menu(chat_id)
                 return
 
@@ -544,11 +542,6 @@ class TelegramHandlers:
         # COMMANDE 1: LICENCE (1️⃣ J’ai une licence)
         # ====================================================================
         if text == "1️⃣ J’ai une licence":
-            # Nettoyage des autres états
-            self.waiting_password.discard(user_id)
-            self.waiting_update_pw.discard(user_id)
-            self.editing_state.pop(user_id, None) 
-            
             self.waiting_licence_code.add(user_id)
             
             kb = [["⬅️ Retour au Menu"]]
@@ -559,17 +552,13 @@ class TelegramHandlers:
         # Traitement du Code de Licence Saisi (Strict)
         if user_id in self.waiting_licence_code:
             self.waiting_licence_code.remove(user_id)
-            
-            if text == "⬅️ Retour au Menu":
-                 self._send_start_menu(chat_id)
-                 return
                  
             # Logique de vérification de licence (pour texte)
             data = self._load_yaml()
             is_valid_code = any(text in lst for lst in data.values())
 
             if not is_valid_code:
-                self.send_message(chat_id, "❌ Licence invalide ou déjà utilisée. Utilisez le menu pour recommencer.")
+                self.send_message(chat_id, "❌ Licence invalide ou déjà utilisée.")
                 self._send_start_menu(chat_id)
                 return
             
@@ -613,8 +602,8 @@ class TelegramHandlers:
             if lic_user and self._licence_expired(lic_user):
                 self._remove_user_licence(user_id) 
             
-            self._send_start_menu(chat_id)
             self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.")
+            self._send_start_menu(chat_id)
             return
 
         # 5. UTILISATEUR LICENCIÉ (PRÉDICTION)
