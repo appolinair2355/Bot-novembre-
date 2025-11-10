@@ -19,6 +19,7 @@ TRANSFO_CONFIG = "transfo_config.json" # Fichier pour les correspondances des ca
 # Mots de passe et IDs administrateur
 ADMIN_PW = "kouame2025"
 UPDATE_PW = "arrow2025" 
+# IDs des administrateurs autorisés à la MISE À JOUR (double sécurité)
 ADMIN_IDS = [1190237801, 1309049556] 
 
 # Constantes pour les états d'édition
@@ -34,7 +35,8 @@ class TelegramHandlers:
         
         # Le dictionnaire self.transfo sera chargé depuis un fichier
         self.transfo = {} 
-        self._ensure_transfo_config() # S'assure que le fichier existe et le charge (met à jour self.transfo et self.last_updated_str)
+        self.last_updated_str = "Inconnue"
+        self._ensure_transfo_config() # S'assure que le fichier existe et le charge
         
         self.start_msg = (
             "🔰 SUIVRE CES CONSIGNES POUR CONNAÎTRE LA CARTE DANS LE JEU SUIVANT👇\n\n"
@@ -55,7 +57,7 @@ class TelegramHandlers:
 
         # États pour la gestion des interactions
         self.offset = 0
-        self.waiting_password = set() # Pour le mot de passe Admin
+        self.waiting_password = set() # Pour le mot de passe Admin (Licences)
         self.waiting_update_pw = set() # Pour le mot de passe Mise à jour
         self.editing_state = {} # {user_id: {'step': X, 'original_card': '10♦️', ...}}
 
@@ -111,7 +113,6 @@ class TelegramHandlers:
 
 
     # ---------- GESTION DES LICENCES (YAML/JSON) ----------
-    # (Les méthodes _ensure_yaml, _load_yaml, _save_yaml, _generate_code, _add_licence, etc., restent inchangées)
     def _ensure_yaml(self):
         if not os.path.exists(LICENCE_YAML):
             data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
@@ -231,9 +232,7 @@ class TelegramHandlers:
 
     def send_keyboard(self, chat_id: int) -> bool:
         """Envoie le clavier des 10 cartes avec la date de mise à jour."""
-        # Utilise les clés actuelles de self.transfo (dynamique)
         all_cards = list(self.transfo.keys())
-        # Assurez-vous qu'il y a au moins 10 cartes pour éviter un IndexError
         if len(all_cards) < 10:
              return self.send_message(chat_id, "❌ Erreur de configuration: 10 cartes de base sont requises.")
              
@@ -266,7 +265,7 @@ class TelegramHandlers:
              
         kb = [
             all_cards[0:3], all_cards[3:6],
-            all_cards[6:9], [all_cards[9]] # Pas de bouton REGLES DE JEU dans ce clavier
+            all_cards[6:9], [all_cards[9]] 
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Choisissez la carte de départ à modifier (actuellement):", markup)
@@ -287,7 +286,6 @@ class TelegramHandlers:
             current_step = state['step']
             
             if current_step == STATE_EDIT_CARD:
-                # Étape 1 : Saisie de la nouvelle carte de départ
                 if len(text) > 10: 
                     self.send_message(chat_id, "Entrée trop longue. Veuillez entrer la carte de départ (ex: 8♣️).")
                     return
@@ -297,14 +295,13 @@ class TelegramHandlers:
                 return
 
             elif current_step == STATE_EDIT_RESULT:
-                # Étape 2 : Saisie du nouveau résultat (ex: PIQUE ♠️)
                 parts = text.split()
                 if len(parts) < 2:
                     self.send_message(chat_id, "Format invalide. Le résultat doit contenir le NOM et le SYMBOLE (ex: PIQUE ♠️).")
                     return
                 
                 nom = parts[0].upper()
-                symb = parts[1] # Le reste est le symbole
+                symb = parts[1]
                 
                 state['new_result'] = [nom, symb]
                 state['step'] = STATE_CONFIRM
@@ -320,11 +317,9 @@ class TelegramHandlers:
                 return
 
             elif current_step == STATE_CONFIRM:
-                # Étape 3 : Confirmation et Sauvegarde
                 del self.editing_state[user_id] 
                 
                 if text == "✅ ENREGISTRER":
-                    # Suppression de l'ancienne carte et ajout de la nouvelle
                     if state['original_card'] in self.transfo:
                         del self.transfo[state['original_card']] 
                     self.transfo[state['new_card']] = tuple(state['new_result'])
@@ -337,7 +332,6 @@ class TelegramHandlers:
                     self.send_message(chat_id, "❌ Modification annulée. Utilisez `/start` pour revenir au menu principal.")
                     return
             
-            # Si un message est reçu alors que l'utilisateur est en édition, mais ne correspond pas aux options
             self.send_message(chat_id, "Veuillez terminer votre action en cours (édition).")
             return
 
@@ -377,13 +371,12 @@ class TelegramHandlers:
         if user_id in self.waiting_update_pw:
             self.waiting_update_pw.remove(user_id)
 
-            # Doit être un Admin ID pour accéder à l'édition (Sécurité)
             if user_id not in ADMIN_IDS:
                 self.send_message(chat_id, "❌ Accès refusé. Seuls les administrateurs désignés peuvent effectuer des mises à jour.")
                 return
 
             if text == UPDATE_PW:
-                self.send_update_panel(chat_id) # Envoie le clavier des 10 boutons
+                self.send_update_panel(chat_id)
                 return
             else:
                 self.send_message(chat_id, "❌ Mot de passe incorrect.")
@@ -391,7 +384,6 @@ class TelegramHandlers:
 
         # Sélection de la Carte à Éditer (Après l'accès Mise à Jour)
         if text in self.transfo.keys():
-            # Si l'utilisateur clique sur un bouton de carte APRES avoir réussi l'authentification (ou s'il est admin)
             if user_id in ADMIN_IDS:
                 self.editing_state[user_id] = {
                     'step': STATE_EDIT_CARD,
@@ -422,7 +414,7 @@ class TelegramHandlers:
             self.send_message(chat_id, "Veuillez entrer votre licence :")
             return
 
-        # Vérification et activation de licence (logique inchangée)
+        # Vérification et activation de licence
         if self._licence_valid(text):
             lic_user = self._get_user_licence(user_id)
             if lic_user and not self._licence_expired(lic_user):
@@ -456,7 +448,7 @@ class TelegramHandlers:
             self.send_keyboard(chat_id)
             return
 
-        # VÉRIFICATION D'EXPIRATION ET BLOCAGE
+                # VÉRIFICATION D'EXPIRATION ET BLOCAGE
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
             # Si la licence vient d'expirer, on la supprime du fichier utilisateur
