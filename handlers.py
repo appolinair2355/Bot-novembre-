@@ -71,6 +71,7 @@ class TelegramHandlers:
         self.offset = 0
         self.waiting_password = set() 
         self.waiting_update_pw = set() 
+        self.waiting_licence_code = set() 
         self.editing_state = {} 
 
 
@@ -261,6 +262,13 @@ class TelegramHandlers:
         except Exception as e:
             logger.error(f"send_message error : {e}")
             return False
+            
+    def _send_start_menu(self, chat_id: int):
+        """Fonction utilitaire pour envoyer le menu de départ."""
+        kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
+        markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
+        self.send_message(chat_id, "🔰 Choisis :", markup)
+        return
 
     def send_keyboard(self, chat_id: int) -> bool:
         """Envoie le clavier de prédiction des 10 cartes pour les utilisateurs licenciés."""
@@ -325,19 +333,14 @@ class TelegramHandlers:
             current_step = state['step']
             
             # Gère l'annulation / retour au menu
-            if text in ["❌ ANNULER", "⬅️ Retour au Menu"]:
+            if text in ["❌ ANNULER", "⬅️ Retour au Menu", "/start"]:
                 del self.editing_state[user_id]
                 self.send_message(chat_id, "❌ Modification annulée. Retour au panneau de mise à jour.")
                 self.send_update_panel(chat_id) 
                 return 
 
-            if text == "/start":
-                del self.editing_state[user_id]
-                self.send_message(chat_id, "❌ Action annulée. Retour au menu principal.")
-            
-            # *********** DÉMARRAGE DE L'ÉDITION PAR UN CLIC SUR CARTE ***********
-            # La sélection d'une carte par un admin DANS ce panneau active le mode d'édition.
-            if text in self.transfo.keys() and user_id in ADMIN_IDS and current_step != STATE_CONFIRM:
+            # DÉMARRAGE DE L'ÉDITION PAR UN CLIC SUR CARTE (UNIQUEMENT dans ce flux)
+            if text in self.transfo.keys() and user_id in ADMIN_IDS and current_step == STATE_EDIT_CARD:
                 state['original_card'] = text
                 state['step'] = STATE_NEW_CARD 
                 
@@ -349,6 +352,12 @@ class TelegramHandlers:
                 )
                 return
             
+            # STATE_EDIT_CARD est l'état initial du panneau, il attend une sélection
+            elif current_step == STATE_EDIT_CARD:
+                 # Si l'utilisateur est en mode édition mais clique sur autre chose qu'une carte
+                 self.send_message(chat_id, "Veuillez sélectionner une carte dans le clavier d'édition pour commencer.")
+                 return
+                 
             # STATE_NEW_CARD (Confirmation OUI/NON)
             elif current_step == STATE_NEW_CARD:
                 if text == "✅ OUI":
@@ -467,67 +476,123 @@ class TelegramHandlers:
 
         # Start (Menu principal)
         if text == "/start" or text == "⬅️ Retour au Menu":
+            # NETTOYAGE COMPLET DES ÉTATS D'ATTENTE
             self.waiting_password.discard(user_id)
             self.waiting_update_pw.discard(user_id)
+            self.waiting_licence_code.discard(user_id)
             self.editing_state.pop(user_id, None) 
             
-            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-            self.send_message(chat_id, "🔰 Choisis :", markup)
+            self._send_start_menu(chat_id)
             return
 
-        # Accès Mise à Jour (3️⃣ Mise à jour)
+        # ====================================================================
+        # COMMANDE 3: MISE À JOUR (3️⃣ Mise à jour)
+        # ====================================================================
         if text == "3️⃣ Mise à jour":
             if user_id in ADMIN_IDS:
+                # Nettoyage des autres états
+                self.waiting_password.discard(user_id)
+                self.waiting_licence_code.discard(user_id)
+
                 self.waiting_update_pw.add(user_id)
-                self.send_message(chat_id, "Entrez le mot de passe de mise à jour :", markup='{"remove_keyboard": true}')
+                
+                kb = [["⬅️ Retour au Menu"]]
+                markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+                self.send_message(chat_id, "Entrez le mot de passe de mise à jour :", markup=markup)
             else:
                 self.send_message(chat_id, "❌ Accès refusé. Seuls les administrateurs désignés peuvent effectuer des mises à jour.")
             return
 
-        # Vérification du Mot de passe Mise à Jour
+        # Vérification du Mot de passe Mise à Jour (Strict)
         if user_id in self.waiting_update_pw:
             self.waiting_update_pw.remove(user_id)
+            
+            if text == "⬅️ Retour au Menu":
+                 self._send_start_menu(chat_id)
+                 return
+
             if user_id not in ADMIN_IDS:
                 self.send_message(chat_id, "❌ Accès refusé.")
                 return
 
             if text == UPDATE_PW:
+                # Initialisation de l'état d'édition pour le flux "Mise à jour"
+                self.editing_state[user_id] = {'step': STATE_EDIT_CARD, 'original_card': None}
+                
+                self.send_message(chat_id, "✅ Mot de passe correct. **Mode Édition activé.**")
                 self.send_update_panel(chat_id) 
                 return
             else:
-                self.send_message(chat_id, "❌ Mot de passe incorrect.")
+                self.send_message(chat_id, "❌ Mot de passe incorrect. Utilisez le menu pour recommencer.")
+                self._send_start_menu(chat_id)
                 return
 
-        # Admin mot de passe (2️⃣ Administrateur)
+        # ====================================================================
+        # COMMANDE 2: ADMINISTRATEUR (2️⃣ Administrateur)
+        # ====================================================================
         if text == "2️⃣ Administrateur":
+            # Nettoyage des autres états
+            self.waiting_update_pw.discard(user_id)
+            self.waiting_licence_code.discard(user_id)
+            
             self.waiting_password.add(user_id)
-            self.send_message(chat_id, "Entrez le mot de passe administrateur :", markup='{"remove_keyboard": true}')
+            
+            kb = [["⬅️ Retour au Menu"]]
+            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+            self.send_message(chat_id, "Entrez le mot de passe administrateur :", markup=markup)
             return
 
+        # Vérification du Mot de passe Administrateur (Strict)
         if user_id in self.waiting_password:
             self.waiting_password.remove(user_id)
+            
+            if text == "⬅️ Retour au Menu":
+                 self._send_start_menu(chat_id)
+                 return
+
             if text == ADMIN_PW:
                 self.send_admin_panel(chat_id)
                 return
             else:
-                self.send_message(chat_id, "❌ Mot de passe administrateur incorrect.")
+                self.send_message(chat_id, "❌ Mot de passe administrateur incorrect. Utilisez le menu pour recommencer.")
+                self._send_start_menu(chat_id)
                 return
 
 
-        # Choix 1 : Saisie de la licence (1️⃣ J’ai une licence)
+        # ====================================================================
+        # COMMANDE 1: LICENCE (1️⃣ J’ai une licence)
+        # ====================================================================
         if text == "1️⃣ J’ai une licence":
-            # NETTOYAGE D'ÉTAT CLÉ POUR GARANTIR LE FLUX DE PRÉDICTION
+            # Nettoyage des autres états
+            self.waiting_password.discard(user_id)
+            self.waiting_update_pw.discard(user_id)
             self.editing_state.pop(user_id, None) 
-            self.send_message(chat_id, "Veuillez entrer votre licence :", markup='{"remove_keyboard": true}')
+            
+            self.waiting_licence_code.add(user_id)
+            
+            kb = [["⬅️ Retour au Menu"]]
+            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+            self.send_message(chat_id, "Veuillez entrer votre licence :", markup=markup)
             return
 
-        # 3. VÉRIFICATION ET ACTIVATION DE LICENCE
-        data = self._load_yaml()
-        is_valid_code = any(text in lst for lst in data.values())
+        # Traitement du Code de Licence Saisi (Strict)
+        if user_id in self.waiting_licence_code:
+            self.waiting_licence_code.remove(user_id)
+            
+            if text == "⬅️ Retour au Menu":
+                 self._send_start_menu(chat_id)
+                 return
+                 
+            # Logique de vérification de licence (pour texte)
+            data = self._load_yaml()
+            is_valid_code = any(text in lst for lst in data.values())
 
-        if is_valid_code:
-            # [...] (Logique d'activation de licence)
+            if not is_valid_code:
+                self.send_message(chat_id, "❌ Licence invalide ou déjà utilisée. Utilisez le menu pour recommencer.")
+                self._send_start_menu(chat_id)
+                return
+            
+            # --- Activation de la licence ---
             lic_user = self._get_user_licence(user_id)
             
             if lic_user and not self._licence_expired(lic_user):
@@ -547,7 +612,8 @@ class TelegramHandlers:
                     break
             
             if not duration:
-                self.send_message(chat_id, "❌ Licence introuvable.")
+                self.send_message(chat_id, "❌ Erreur interne lors de la vérification de la licence.")
+                self._send_start_menu(chat_id)
                 return
             
             self._remove_used(code)
@@ -560,36 +626,20 @@ class TelegramHandlers:
             return
             
         
-        # 4. VÉRIFICATION D'EXPIRATION ET BLOCAGE
+        # 4. VÉRIFICATION D'EXPIRATION ET BLOCAGE (Contrôle d'accès général)
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
             if lic_user and self._licence_expired(lic_user):
                 self._remove_user_licence(user_id) 
             
-            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.", markup)
+            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.")
+            self._send_start_menu(chat_id)
             return
 
-        # 5. UTILISATEUR LICENCIÉ (PRÉDICTION) - PRIORITÉ MAX
-        # Ce bloc s'exécute pour TOUT utilisateur (y compris l'admin) avec une licence valide
-        # qui clique sur une carte après avoir passé le menu "J'ai une licence".
+        # 5. UTILISATEUR LICENCIÉ (PRÉDICTION)
         remaining = self._remaining_str(lic_user)
         self.send_message(chat_id, remaining)
 
         # Affichage de la prédiction
         if text == "REGLES DE JEU":
-            self.send_message(chat_id, self.regles)
-            return
-        if text in self.transfo:
-            # PRÉDICTION ET RETURN IMMÉDIAT
-            nom, symb = self.transfo[text] 
-            
-            display_result = f"{nom} {symb}".strip() 
-            
-            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{display_result}**\n\n📍ASSURANCE 100%📍")
-            return
-        
-        # 6. Message non compris
-        self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-                       
+            self.send_message(chat_id, self.regl
