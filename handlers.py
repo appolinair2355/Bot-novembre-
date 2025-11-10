@@ -22,22 +22,17 @@ UPDATE_PW = "arrow2025"
 ADMIN_IDS = [1190237801, 1309049556, 5622847726] 
 
 # Constantes pour les états d'édition
-STATE_EDIT_CARD = 1
+STATE_EDIT_CARD = 1 # Utilisé pour la saisie du code de licence
 STATE_NEW_CARD = 2
 STATE_EDIT_RESULT = 3
 STATE_CONFIRM = 4
+STATE_UPDATE_PANEL = 5 
 
 # Valeurs de configuration par défaut pour la restauration
 DEFAULT_TRANSFO_DATA = {
-    "10♦️": ["PIQUE", "♠️"], 
-    "10♠️": ["COEUR", "❤️"], 
-    "9♣️": ["COEUR", "❤️"],
-    "9♦️": ["PIQUE", "♠️"],
-    "8♣️": ["PIQUE", "♠️"],
-    "8♠️": ["TREFLE", "♣️"],
-    "7♠️": ["PIQUE", "♠️"],
-    "7♣️": ["TREFLE", "♣️"],
-    "6♦️": ["TREFLE", "♣️"],
+    "10♦️": ["PIQUE", "♠️"], "10♠️": ["COEUR", "❤️"], "9♣️": ["COEUR", "❤️"],
+    "9♦️": ["PIQUE", "♠️"], "8♣️": ["PIQUE", "♠️"], "8♠️": ["TREFLE", "♣️"],
+    "7♠️": ["PIQUE", "♠️"], "7♣️": ["TREFLE", "♣️"], "6♦️": ["TREFLE", "♣️"],
     "6♣️": ["CARREAU", "♦️"]
 }
 
@@ -74,9 +69,9 @@ class TelegramHandlers:
         self.editing_state = {} 
 
 
-    # CONFIGURATION DES CARTES (TRANSFO)
+    # --- CONFIGURATION DES CARTES (TRANSFO) ---
+    
     def _ensure_transfo_config(self):
-        """S'assure que le fichier de configuration des cartes existe, sinon le crée avec les valeurs par défaut."""
         if not os.path.exists(TRANSFO_CONFIG):
             default_transfo = {
                 "transfo": {k: list(v) for k, v in DEFAULT_TRANSFO_DATA.items()},
@@ -88,7 +83,6 @@ class TelegramHandlers:
         self._load_transfo_config()
 
     def _load_transfo_config(self):
-        """Charge le dictionnaire des correspondances. Utilise les valeurs par défaut si la lecture échoue."""
         try:
             with open(TRANSFO_CONFIG, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -97,15 +91,11 @@ class TelegramHandlers:
                 
                 self.transfo = {k: tuple(v) for k, v in data["transfo"].items()} 
                 self.last_updated_str = data["last_updated"]
-                logger.info("Configuration des cartes chargée depuis le fichier.")
-                
         except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Erreur lors du chargement de transfo_config.json ({type(e).__name__}). Utilisation des valeurs par défaut.")
             self.transfo = {k: tuple(v) for k, v in DEFAULT_TRANSFO_DATA.items()}
             self.last_updated_str = "Défaut (GMT+1)"
 
     def _save_transfo_config(self):
-        """Sauvegarde les correspondances mises à jour."""
         transfo_list = {k: list(v) for k, v in self.transfo.items()} 
         data = {
             "transfo": transfo_list,
@@ -115,12 +105,10 @@ class TelegramHandlers:
             with open(TRANSFO_CONFIG, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
             self.last_updated_str = data["last_updated"]
-            logger.info(f"Configuration des cartes mise à jour et enregistrée par {self.last_updated_str}")
         except Exception as e:
             logger.error(f"Erreur lors de la sauvegarde de transfo_config.json: {e}")
 
     def _restore_default(self):
-        """Rétablit la configuration des cartes par défaut et sauvegarde."""
         data = {
             "transfo": {k: list(v) for k, v in DEFAULT_TRANSFO_DATA.items()},
             "last_updated": datetime.now().strftime("%d-%m-%Y à %H:%M:%S (GMT+1)")
@@ -129,13 +117,12 @@ class TelegramHandlers:
             with open(TRANSFO_CONFIG, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
             self._load_transfo_config() 
-            logger.info("Configuration des cartes restaurée aux valeurs par défaut.")
             return True
         except Exception as e:
-            logger.error(f"Erreur lors de la restauration: {e}")
             return False
 
-    # GESTION DES LICENCES (YAML/JSON)
+    # --- GESTION DES LICENCES (YAML/JSON) ---
+    
     def _ensure_yaml(self):
         if not os.path.exists(LICENCE_YAML):
             data = {"licences": {"1h": [], "2h": [], "5h": [], "24h": [], "48h": []}}
@@ -151,7 +138,6 @@ class TelegramHandlers:
             yaml.dump({"licences": data}, f)
 
     def _generate_code(self) -> str:
-        """Génère le format de licence."""
         part1 = ''.join(choice(MAJ) for _ in range(3))
         part2 = ''.join(choice(CHIFFRES) for _ in range(3))
         part3 = datetime.now().strftime("%H")
@@ -175,7 +161,7 @@ class TelegramHandlers:
 
     def _remove_used(self, code: str):
         data = self._load_yaml()
-        for lst in data.values():
+        for duration, lst in data.items():
             if code in lst:
                 lst.remove(code)
                 break
@@ -239,7 +225,7 @@ class TelegramHandlers:
         m, s = divmod(rem, 60)
         return f"⏳ Licence : {h:02d}h {m:02d}m {s:02d}s"
     
-    # API ET CLAVIERS
+    # --- API ET CLAVIERS ---
 
     def send_message(self, chat_id: int, text: str, markup: str = None) -> bool:
         payload = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
@@ -254,52 +240,66 @@ class TelegramHandlers:
             return False
 
     def send_keyboard(self, chat_id: int) -> bool:
-        """Envoie le clavier de prédiction des 10 cartes pour les utilisateurs licenciés."""
         all_cards = list(self.transfo.keys())
         if len(all_cards) < 10:
              all_cards = list(DEFAULT_TRANSFO_DATA.keys()) 
              if len(all_cards) < 10:
                  return self.send_message(chat_id, "❌ Erreur de configuration: 10 cartes de base sont requises.")
              
-        # Organisation du clavier (4-3-3)
-        kb = [
-            all_cards[0:4], 
-            all_cards[4:7], 
-            all_cards[7:10], 
-            ["REGLES DE JEU"] 
-        ]
+        kb = [all_cards[0:4], all_cards[4:7], all_cards[7:10], ["REGLES DE JEU"]]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-        
-        msg = (
-            self.start_msg + 
-            f"\n\n_Dernière mise à jour : {self.last_updated_str}_"
-        )
+        msg = (self.start_msg + f"\n\n_Dernière mise à jour : {self.last_updated_str}_")
         return self.send_message(chat_id, msg, markup)
 
     def send_admin_panel(self, chat_id: int):
-        """Envoie le panneau d'administration des licences."""
         data = self._load_yaml()
         unused = {k: len(v) for k, v in data.items()}
         lines = "\n".join([f"**{d}** : {nb} disponible(s)" for d, nb in unused.items()]) 
         self.send_message(chat_id, f"📦 Licences disponibles :\n{lines}")
-        kb = [["/lic 1h"], ["/lic 2h"], ["/lic 5h"], ["/lic 24h"], ["/lic 48h"], ["⬅️ Retour au Menu"]]
+        kb = [["/lic 1h", "/lic 2h", "/lic 5h"], ["/lic 24h", "/lic 48h"], ["/update_panel", "⬅️ Retour au Menu"]]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Génération rapide :", markup)
         
     def send_update_panel(self, chat_id: int):
-        """Envoie le clavier des 10 cartes pour l'édition (Administrateur)."""
         all_cards = list(self.transfo.keys())
         if len(all_cards) < 10:
              return self.send_message(chat_id, "❌ Erreur de configuration: 10 cartes de base sont requises pour l'édition.")
              
-        kb = [
-            all_cards[0:3], all_cards[3:6],
-            all_cards[6:9], [all_cards[9]],
-            ["🔄 RESTAURER", "⬅️ Retour au Menu"]
-        ]
+        kb = [all_cards[0:3], all_cards[3:6], all_cards[6:9], [all_cards[9]], ["🔄 RESTAURER", "❌ ANNULER"]]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Choisissez la carte de départ à modifier (actuellement):", markup)
-    # ROUTE
+        
+    # --- GESTION DE LA BOUCLE PRINCIPALE (POLLING) ---
+
+    def get_updates(self) -> List[Dict[str, Any]]:
+        """Récupère les nouvelles mises à jour (messages) depuis l'API Telegram."""
+        try:
+            params = {"offset": self.offset + 1, "timeout": 30}
+            r = requests.get(f"{self.base_url}/getUpdates", params=params, timeout=35)
+            r.raise_for_status()
+            
+            updates = r.json().get("result", [])
+            if updates:
+                self.offset = updates[-1]["update_id"]
+            
+            return updates
+        except requests.exceptions.ReadTimeout:
+            return []
+        except Exception as e:
+            logger.error(f"Erreur get_updates : {e}")
+            time.sleep(5)
+            return []
+
+    def run_bot(self):
+        """Lance la boucle principale pour écouter les messages."""
+        logger.info("Démarrage du bot. Écoute des mises à jour...")
+        self.offset = 0 
+        while True:
+            updates = self.get_updates()
+            for update in updates:
+                self.handle_update(update)
+    # --- ROUTAGE (HANDLE_UPDATE) ---
+    
     def handle_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
         if "text" not in msg or "chat" not in msg:
@@ -309,26 +309,73 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # ÉTAPE 1.1 : GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
+        # GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
         if user_id in self.editing_state:
             state = self.editing_state[user_id]
             current_step = state['step']
             
-            # Gère l'annulation / retour au menu
-            if text in ["❌ ANNULER", "⬅️ Retour au Menu"]:
-                del self.editing_state[user_id]
-                self.send_message(chat_id, "❌ Modification annulée. Retour au panneau de mise à jour.")
-                self.send_update_panel(chat_id) 
-                return 
-
-            if text == "/start":
+            # Gère l'annulation / retour au menu pour les workflows multi-étapes
+            if text in ["❌ ANNULER", "⬅️ Retour au Menu", "/start"]:
                 del self.editing_state[user_id]
                 self.send_message(chat_id, "❌ Action annulée. Retour au menu principal.")
+                if user_id in ADMIN_IDS:
+                     self.send_admin_panel(chat_id)
+                else:
+                     self.send_message(chat_id, "Utilisez `/start`.")
                 return 
-            
-            # STATE_EDIT_CARD (Ce bloc n'est plus utilisé)
 
-            # STATE_NEW_CARD (Confirmation OUI/NON - 1ère étape après sélection)
+            # GESTION DES WORKFLOWS (SUIVI DES ÉTATS)
+
+            # STATE_EDIT_CARD (Saisie du code de licence)
+            if current_step == STATE_EDIT_CARD:
+                licence_code = text
+                del self.editing_state[user_id]
+                
+                if self._licence_valid(licence_code):
+                    self._remove_used(licence_code) 
+                    
+                    duration_str = next((d for d, codes in self._load_yaml().items() if licence_code not in codes), "24h")
+                    hours = int(re.search(r'(\d+)', duration_str).group(1))
+                    
+                    self._save_user_licence(user_id, licence_code, hours)
+                    
+                    self.send_message(chat_id, f"✅ Licence **{licence_code}** activée pour {hours}h ! Utilisez `/start` pour commencer.")
+                else:
+                    self.send_message(chat_id, "❌ Code de licence invalide ou déjà utilisé. Veuillez contacter l'administrateur.")
+                
+                return
+
+
+            # NOUVEAU: STATE_UPDATE_PANEL (Sélection initiale de la carte à éditer)
+            if current_step == STATE_UPDATE_PANEL:
+                if text in self.transfo.keys():
+                    state['original_card'] = text
+                    state['step'] = STATE_NEW_CARD
+                    current_result = f"**{self.transfo[text][0]} {self.transfo[text][1]}**".strip()
+                    
+                    kb = [["✅ OUI"], ["❌ NON"]]
+                    markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+                    self.send_message(chat_id, 
+                        f"Voulez-vous modifier le bouton clavier **{text}** ?\n"
+                        f"Résultat actuel : {current_result}", 
+                        markup
+                    )
+                    return
+                elif text == "🔄 RESTAURER":
+                    if self._restore_default():
+                        self.send_message(chat_id, "✅ Configuration restaurée aux valeurs par défaut.")
+                    else:
+                        self.send_message(chat_id, "❌ Erreur lors de la restauration.")
+                    
+                    del self.editing_state[user_id]
+                    self.send_update_panel(chat_id)
+                    return
+                else:
+                    self.send_message(chat_id, "Veuillez choisir une carte existante, RESTAURER ou ANNULER.")
+                    return
+
+
+            # STATE_NEW_CARD (Confirmation OUI/NON)
             elif current_step == STATE_NEW_CARD:
                 if text == "✅ OUI":
                     state['step'] = STATE_EDIT_RESULT
@@ -349,13 +396,41 @@ class TelegramHandlers:
                     self.send_message(chat_id, "Entrée trop longue pour le nom de la carte. Max 10 caractères.")
                     return
 
+                if state['original_card'] in self.transfo and text != state['original_card']:
+                    del self.transfo[state['original_card']]
+
                 state['new_card'] = text 
                 state['step'] = STATE_CONFIRM
-                self.send_message(chat_id, f"OK. Entrez le **nouveau résultat** de la prédiction (ex: TRÈFLE ♣️ ou Dame Q) :", markup='{"remove_keyboard": true}')
+                self.send_message(chat_id, f"OK. Entrez le **nouveau résultat** de la prédiction (ex: TREFLE ♣️ ou Dame Q) :", markup='{"remove_keyboard": true}')
                 return
 
             # STATE_CONFIRM (Saisie du Nouveau Résultat et Confirmation Finale)
             elif current_step == STATE_CONFIRM:
+                
+                # Finalisation de l'édition (✅ ENREGISTRER)
+                if text == "✅ ENREGISTRER":
+                    if 'new_result' not in state:
+                        self.send_message(chat_id, "❌ Le résultat de prédiction est manquant. Veuillez le saisir d'abord.")
+                        return
+                        
+                    # SAUVEGARDE EFFICACE ET IMMÉDIATE
+                    self.transfo[state['new_card']] = tuple(state['new_result'])
+                    self._save_transfo_config()
+                    
+                    del self.editing_state[user_id] 
+                    
+                    msg = (
+                        f"✅ Clavier mis à jour et enregistré !\n"
+                        f"_Date de modification : {self.last_updated_str}_"
+                    )
+                    self.send_message(chat_id, msg)
+                    
+                    # Retour à la sélection de carte pour une nouvelle édition
+                    self.editing_state[user_id] = {'step': STATE_UPDATE_PANEL}
+                    self.send_update_panel(chat_id)
+                    return
+                
+                # Saisie du Nouveau Résultat
                 parts = text.split()
                 if not parts:
                     self.send_message(chat_id, "Entrée vide. Veuillez entrer le NOUVEAU résultat de prédiction.")
@@ -371,10 +446,9 @@ class TelegramHandlers:
                 state['new_result'] = [nom, symb]
                 display_result = f"{nom} {symb}".strip()
                 
-                # Le message de récapitulatif
                 self.send_message(chat_id, 
-                    f"Vous avez modifié le bouton clavier **{state['original_card']}** par **{state['new_card']}**\n"
-                    f"et le nouveau résultat pour ce bouton clavier est : **{display_result}**\n\n"
+                    f"Vous avez configuré le bouton clavier **{state['new_card']}**\n"
+                    f"et le résultat est : **{display_result}**\n\n"
                 )
                 
                 kb = [["✅ ENREGISTRER"], ["❌ ANNULER"]]
@@ -382,187 +456,110 @@ class TelegramHandlers:
                 self.send_message(chat_id, "Si cette information est correcte, confirmez :", markup)
                 return
 
+
             self.send_message(chat_id, "Veuillez terminer votre action en cours (édition).")
             return
 
 
-        # ROUTAGE PRINCIPAL
-
-        # ÉTAPE 2.A : ENREGISTRER (Finalisation de l'édition et correction de la boucle)
-        if text == "✅ ENREGISTRER" and user_id in self.editing_state:
-            state = self.editing_state[user_id]
-            
-            # 1. Logique d'enregistrement
-            if state['original_card'] in self.transfo:
-                del self.transfo[state['original_card']] 
-            self.transfo[state['new_card']] = tuple(state['new_result'])
-            self._save_transfo_config()
-            
-            del self.editing_state[user_id] 
-            
-            # 2. ENVOI DU MESSAGE DE SUCCÈS
-            self.send_message(chat_id, 
-                f"✅ Clavier mis à jour et enregistré !\n"
-                f"_Date de modification : {self.last_updated_str}_"
-            )
-            
-            # 3. RETOUR AU PANNEAU DE MISE À JOUR (Correction de la boucle)
-            self.send_update_panel(chat_id)
-            return
-
-        if text == "❌ ANNULER" and user_id in self.editing_state:
-            del self.editing_state[user_id]
-            self.send_message(chat_id, "❌ Modification annulée. Utilisez `/start` pour revenir au menu principal.")
-            return
-
-        # Gestion /lic (Administrateur)
-        if text.startswith("/lic ") and user_id in ADMIN_IDS:
-             parts = text.split()
-             if len(parts) == 2 and parts[1] in ["1h", "2h", "5h", "24h", "48h"]:
-                duration = parts[1]
-                
-                # Génération de la licence et ajout au pool
-                code = self._add_licence(duration) 
-                
-                self.send_message(chat_id, f"✅ Licence {duration} générée : **{code}**")
-                self.send_admin_panel(chat_id) # Retour au panneau admin
-                return
-             else:
-                self.send_message(chat_id, "❌ Format de commande invalide. Ex: `/lic 1h`")
-                return
-
-
-        # Start (Menu principal)
-        if text == "/start" or text == "⬅️ Retour au Menu":
-            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-            self.send_message(chat_id, "🔰 Choisis :", markup)
-            return
-
-        # Accès Mise à Jour (3️⃣ Mise à jour)
-        if text == "3️⃣ Mise à jour":
-            if user_id in ADMIN_IDS:
-                self.waiting_update_pw.add(user_id)
-                self.send_message(chat_id, "Entrez le mot de passe de mise à jour :", markup='{"remove_keyboard": true}')
-            else:
-                self.send_message(chat_id, "❌ Accès refusé. Seuls les administrateurs désignés peuvent effectuer des mises à jour.")
-            return
-
-        # Vérification du Mot de passe Mise à Jour
-        if user_id in self.waiting_update_pw:
-            self.waiting_update_pw.remove(user_id)
-            if user_id not in ADMIN_IDS:
-                self.send_message(chat_id, "❌ Accès refusé.")
-                return
-
-            if text == UPDATE_PW:
-                self.send_update_panel(chat_id) 
+        # ROUTAGE PRINCIPAL (Logique non-état)
+        
+        # 1. Gestion des mots de passe en cours
+        if user_id in self.waiting_password:
+            self.waiting_password.remove(user_id)
+            if text == ADMIN_PW:
+                if user_id not in ADMIN_IDS: ADMIN_IDS.append(user_id) 
+                self.send_message(chat_id, "✅ Accès Administrateur réussi ! Bienvenue.")
+                self.send_admin_panel(chat_id)
                 return
             else:
                 self.send_message(chat_id, "❌ Mot de passe incorrect.")
                 return
 
-        # Admin mot de passe (2️⃣ Administrateur)
-        if text == "2️⃣ Administrateur":
-            self.waiting_password.add(user_id)
-            self.send_message(chat_id, "Entrez le mot de passe administrateur :", markup='{"remove_keyboard": true}')
-            return
+        if user_id in self.waiting_update_pw:
+            self.waiting_update_pw.remove(user_id)
+            if text == UPDATE_PW:
+                self.editing_state[user_id] = {'step': STATE_UPDATE_PANEL}
+                self.send_update_panel(chat_id)
+                return
+            else:
+                self.send_message(chat_id, "❌ Mot de passe de mise à jour incorrect.")
+                return
 
-        if user_id in self.waiting_password and text == ADMIN_PW:
-            self.waiting_password.remove(user_id)
-            self.send_admin_panel(chat_id)
+        # 2. Commandes et accès Admin
+        if text == "/start":
+            lic = self._get_user_licence(user_id)
+            
+            if not lic or self._licence_expired(lic):
+                self._remove_user_licence(user_id)
+                
+                kb = [["🎟️ ACTIVER LICENCE"], ["ℹ️ RÈGLES DE JEU"], ["🔑 ADMIN"]]
+                markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+                
+                self.send_message(chat_id, self.start_msg, markup)
+            else:
+                remaining_time = self._remaining_str(lic)
+                self.send_message(chat_id, f"✅ Licence active : **{lic['code']}**\n{remaining_time}")
+                self.send_keyboard(chat_id) 
             return
-        if user_id in self.waiting_password:
-             self.waiting_password.remove(user_id)
-             self.send_message(chat_id, "❌ Mot de passe administrateur incorrect.")
+        
+        if text.startswith("/lic ") and user_id in ADMIN_IDS:
+             parts = text.split()
+             if len(parts) == 2 and parts[1] in ["1h", "2h", "5h", "24h", "48h"]:
+                duration = parts[1]
+                code = self._add_licence(duration) 
+                self.send_message(chat_id, f"✅ Licence {duration} générée : **{code}**")
+                self.send_admin_panel(chat_id) 
+                return
+             else:
+                self.send_message(chat_id, "❌ Format de commande incorrect. Utilisez `/lic [durée]`, ex: `/lic 5h`.")
+                return
+
+        if text == "/update_panel" and user_id in ADMIN_IDS:
+             self.send_message(chat_id, "🔑 Entrez le mot de passe de mise à jour pour le panneau de carte :", markup='{"remove_keyboard": true}')
+             self.waiting_update_pw.add(user_id)
              return
 
 
-        # Choix 1 : Saisie de la licence (1️⃣ J’ai une licence)
-        if text == "1️⃣ J’ai une licence":
-            self.send_message(chat_id, "Veuillez entrer votre licence :", markup='{"remove_keyboard": true}')
+        # 3. Actions Utilisateur (Boutons de menu)
+        
+        if text == "🔑 ADMIN":
+            self.send_message(chat_id, "🔑 Entrez le mot de passe d'administration :", markup='{"remove_keyboard": true}')
+            self.waiting_password.add(user_id)
             return
-
-        # Vérification et activation de licence
-        if self._licence_valid(text):
-            lic_user = self._get_user_licence(user_id)
-            if lic_user and not self._licence_expired(lic_user):
-                self.send_message(chat_id, "✅ Licence déjà active.")
-                self.send_keyboard(chat_id) 
-                return
             
-            if lic_user and self._licence_expired(lic_user):
-                self._remove_user_licence(user_id) 
-                self.send_message(chat_id, "🔒 Licence expirée. Veuillez acheter une nouvelle licence.")
-                return
-
-            code = text
-            duration = None
-            data = self._load_yaml()
-            for d, lst in data.items():
-                if code in lst:
-                    duration = d
-                    break
-            if not duration:
-                self.send_message(chat_id, "❌ Licence introuvable.")
-                return
-            
-            self._remove_used(code)
-            self._save_user_licence(user_id, code, int(duration.replace("h", ""))) 
-            
-            self.send_message(chat_id, "✅ Licence acceptée !")
-            remaining = self._remaining_str(self._get_user_licence(user_id))
-            self.send_message(chat_id, remaining)
-            self.send_keyboard(chat_id) # ENVOIE LE CLAVIER DE PRÉDICTION
-            return
-
-        # ÉTAPE 2.B : Sélection de la Carte à Éditer (Initialisation du processus)
-        # S'assure que l'admin clique sur une carte ET qu'il n'est pas déjà dans un état d'édition
-        if user_id in ADMIN_IDS and text in self.transfo.keys() and user_id not in self.editing_state:
-            
-            # Initialise l'état d'édition en passant directement à l'étape 2 (Confirmation OUI/NON)
-            self.editing_state[user_id] = {
-                'step': STATE_NEW_CARD, 
-                'original_card': text 
-            } 
-            
-            kb = [["✅ OUI"], ["❌ NON"]]
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-            
-            self.send_message(chat_id, 
-                f"Voulez-vous modifier le bouton clavier **{text}** ?", 
-                markup
-            )
-            return
-
-
-        # VÉRIFICATION D'EXPIRATION ET BLOCAGE
-        lic_user = self._get_user_licence(user_id)
-        if not lic_user or self._licence_expired(lic_user):
-            if lic_user and self._licence_expired(lic_user):
-                self._remove_user_licence(user_id) 
-            
-            kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
-            self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.", markup)
-            return
-
-        # UTILISATEUR LICENCIÉ
-        remaining = self._remaining_str(lic_user)
-        self.send_message(chat_id, remaining)
-
-        # Affichage de la prédiction
-        if text == "REGLES DE JEU":
+        if text == "ℹ️ RÈGLES DE JEU" or text == "REGLES DE JEU":
             self.send_message(chat_id, self.regles)
             return
-        if text in self.transfo:
-            nom, symb = self.transfo[text] 
-            
-            display_result = f"{nom} {symb}".strip() 
-            
-            # FORMAT EN GRAS DEMANDÉ pour la prédiction
-            self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{display_result}**\n\n📍ASSURANCE 100%📍")
+
+        if text == "🎟️ ACTIVER LICENCE":
+            lic = self._get_user_licence(user_id)
+            if not lic or self._licence_expired(lic):
+                self.send_message(chat_id, "Veuillez entrer votre code de licence (ex: XYZ12308K) :", markup='{"remove_keyboard": true}')
+                self.editing_state[user_id] = {'step': STATE_EDIT_CARD} 
+            else:
+                remaining_time = self._remaining_str(lic)
+                self.send_message(chat_id, f"⚠️ Votre licence est déjà active : **{lic['code']}**\n{remaining_time}")
             return
-        
-        self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
+            
+        # 4. Prédiction de carte
+        if text in self.transfo:
+            lic = self._get_user_licence(user_id)
+            if not lic or self._licence_expired(lic):
+                self.send_message(chat_id, "❌ Votre licence a expiré ou n'est pas active. Utilisez `/start` pour l'activer.")
+                return
+
+            # Exécution de la prédiction
+            pred_info = self.transfo[text]
+            nom, symbole = pred_info[0], pred_info[1]
+            
+            # FORMAT DE RÉPONSE FINAL (LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE♠️ (Pique))
+            result = f"LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE{symbole} ({nom})"
+
+            remaining = self._remaining_str(lic)
+
+            self.send_message(chat_id, f"{result}\n\n{remaining}")
+            return
+
+        # 5. AUCUNE CORRESPONDANCE
+        self.send_message(chat_id, "Commande ou carte non reconnue. Utilisez les boutons du clavier ou `/start`.")
     
