@@ -299,8 +299,6 @@ class TelegramHandlers:
         ]
         markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
         self.send_message(chat_id, "Choisissez la carte de départ à modifier (actuellement):", markup)
-                      # Fichier: handlers.py (Suite, méthode handle_update)
-
     # ROUTE
     def handle_update(self, update: Dict[str, Any]):
         msg = update.get("message", {})
@@ -311,7 +309,7 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
+        # ÉTAPE 1.1 : GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
         if user_id in self.editing_state:
             state = self.editing_state[user_id]
             current_step = state['step']
@@ -326,26 +324,11 @@ class TelegramHandlers:
             if text == "/start":
                 del self.editing_state[user_id]
                 self.send_message(chat_id, "❌ Action annulée. Retour au menu principal.")
+                return 
             
-            # STATE_EDIT_CARD
-            elif current_step == STATE_EDIT_CARD:
-                
-                if text in self.transfo.keys():
-                    state['original_card'] = text
-                    state['step'] = STATE_NEW_CARD 
-                    
-                    kb = [["✅ OUI"], ["❌ NON"]]
-                    markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-                    self.send_message(chat_id, 
-                        f"Voulez-vous modifier le bouton clavier **{text}** ?", 
-                        markup
-                    )
-                    return
-                else: 
-                    self.send_message(chat_id, "Carte non reconnue. Veuillez choisir une carte existante dans le clavier.")
-                    return
+            # STATE_EDIT_CARD (Ce bloc n'est plus utilisé)
 
-            # STATE_NEW_CARD (Confirmation OUI/NON)
+            # STATE_NEW_CARD (Confirmation OUI/NON - 1ère étape après sélection)
             elif current_step == STATE_NEW_CARD:
                 if text == "✅ OUI":
                     state['step'] = STATE_EDIT_RESULT
@@ -388,6 +371,7 @@ class TelegramHandlers:
                 state['new_result'] = [nom, symb]
                 display_result = f"{nom} {symb}".strip()
                 
+                # Le message de récapitulatif
                 self.send_message(chat_id, 
                     f"Vous avez modifié le bouton clavier **{state['original_card']}** par **{state['new_card']}**\n"
                     f"et le nouveau résultat pour ce bouton clavier est : **{display_result}**\n\n"
@@ -404,9 +388,11 @@ class TelegramHandlers:
 
         # ROUTAGE PRINCIPAL
 
-        # ENREGISTRER (Finalisation de l'édition)
+        # ÉTAPE 2.A : ENREGISTRER (Finalisation de l'édition et correction de la boucle)
         if text == "✅ ENREGISTRER" and user_id in self.editing_state:
             state = self.editing_state[user_id]
+            
+            # 1. Logique d'enregistrement
             if state['original_card'] in self.transfo:
                 del self.transfo[state['original_card']] 
             self.transfo[state['new_card']] = tuple(state['new_result'])
@@ -414,15 +400,14 @@ class TelegramHandlers:
             
             del self.editing_state[user_id] 
             
-            msg = (
+            # 2. ENVOI DU MESSAGE DE SUCCÈS
+            self.send_message(chat_id, 
                 f"✅ Clavier mis à jour et enregistré !\n"
-                f"_Date de modification : {self.last_updated_str}_\n\n"
-                f"Utilisez le bouton `⬅️ Retour au Menu` ci-dessous pour continuer."
+                f"_Date de modification : {self.last_updated_str}_"
             )
             
-            kb = [["⬅️ Retour au Menu"]] 
-            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-            self.send_message(chat_id, msg, markup)
+            # 3. RETOUR AU PANNEAU DE MISE À JOUR (Correction de la boucle)
+            self.send_update_panel(chat_id)
             return
 
         if text == "❌ ANNULER" and user_id in self.editing_state:
@@ -430,7 +415,22 @@ class TelegramHandlers:
             self.send_message(chat_id, "❌ Modification annulée. Utilisez `/start` pour revenir au menu principal.")
             return
 
-        # ... (Logique /lic et RESTAURER)
+        # Gestion /lic (Administrateur)
+        if text.startswith("/lic ") and user_id in ADMIN_IDS:
+             parts = text.split()
+             if len(parts) == 2 and parts[1] in ["1h", "2h", "5h", "24h", "48h"]:
+                duration = parts[1]
+                
+                # Génération de la licence et ajout au pool
+                code = self._add_licence(duration) 
+                
+                self.send_message(chat_id, f"✅ Licence {duration} générée : **{code}**")
+                self.send_admin_panel(chat_id) # Retour au panneau admin
+                return
+             else:
+                self.send_message(chat_id, "❌ Format de commande invalide. Ex: `/lic 1h`")
+                return
+
 
         # Start (Menu principal)
         if text == "/start" or text == "⬅️ Retour au Menu":
@@ -516,11 +516,23 @@ class TelegramHandlers:
             self.send_keyboard(chat_id) # ENVOIE LE CLAVIER DE PRÉDICTION
             return
 
-        # Sélection de la Carte à Éditer (Uniquement si l'admin est dans le panneau de mise à jour)
-        if user_id in ADMIN_IDS and text in self.transfo.keys():
-            # Initialise l'état d'édition pour le début du processus
-            self.editing_state[user_id] = {'step': STATE_EDIT_CARD} 
-            # Le traitement continue au bloc 'if user_id in self.editing_state' ci-dessus.
+        # ÉTAPE 2.B : Sélection de la Carte à Éditer (Initialisation du processus)
+        # S'assure que l'admin clique sur une carte ET qu'il n'est pas déjà dans un état d'édition
+        if user_id in ADMIN_IDS and text in self.transfo.keys() and user_id not in self.editing_state:
+            
+            # Initialise l'état d'édition en passant directement à l'étape 2 (Confirmation OUI/NON)
+            self.editing_state[user_id] = {
+                'step': STATE_NEW_CARD, 
+                'original_card': text 
+            } 
+            
+            kb = [["✅ OUI"], ["❌ NON"]]
+            markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+            
+            self.send_message(chat_id, 
+                f"Voulez-vous modifier le bouton clavier **{text}** ?", 
+                markup
+            )
             return
 
 
@@ -553,3 +565,4 @@ class TelegramHandlers:
             return
         
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
+    
