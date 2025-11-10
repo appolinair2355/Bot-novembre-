@@ -162,7 +162,7 @@ class TelegramHandlers:
     def _add_licence(self, duration: str) -> str:
         """
         Génère un code unique, l'ajoute à la liste de la durée spécifiée et sauvegarde.
-        S'assure de la non-duplication du code (CORRIGÉ).
+        S'assure de la non-duplication du code.
         """
         data = self._load_yaml()
         
@@ -174,8 +174,6 @@ class TelegramHandlers:
         data[duration].append(code)
         self._save_yaml(data)
         return code
-
-# La suite du code est dans la Partie 2
     # GESTION DES LICENCES (SUITE)
     def _licence_valid(self, code: str) -> bool:
         data = self._load_yaml()
@@ -321,7 +319,7 @@ class TelegramHandlers:
         chat_id = msg["chat"]["id"]
         user_id = msg["from"]["id"]
 
-        # GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
+        # 1. GESTION DES ÉTATS D'ÉDITION MULTI-PARTIES (PRIORITÉ MAX)
         if user_id in self.editing_state:
             state = self.editing_state[user_id]
             current_step = state['step']
@@ -337,24 +335,20 @@ class TelegramHandlers:
                 del self.editing_state[user_id]
                 self.send_message(chat_id, "❌ Action annulée. Retour au menu principal.")
             
-            # STATE_EDIT_CARD (Déclenché si on clique sur une carte dans le panneau d'édition)
-            elif current_step == STATE_EDIT_CARD:
+            # *********** DÉMARRAGE DE L'ÉDITION PAR UN CLIC SUR CARTE ***********
+            # La sélection d'une carte par un admin DANS ce panneau active le mode d'édition.
+            if text in self.transfo.keys() and user_id in ADMIN_IDS and current_step != STATE_CONFIRM:
+                state['original_card'] = text
+                state['step'] = STATE_NEW_CARD 
                 
-                if text in self.transfo.keys():
-                    state['original_card'] = text
-                    state['step'] = STATE_NEW_CARD 
-                    
-                    kb = [["✅ OUI"], ["❌ NON"]]
-                    markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-                    self.send_message(chat_id, 
-                        f"Voulez-vous modifier le bouton clavier **{text}** ?", 
-                        markup
-                    )
-                    return
-                else: 
-                    self.send_message(chat_id, "Carte non reconnue. Veuillez choisir une carte existante dans le clavier.")
-                    return
-
+                kb = [["✅ OUI"], ["❌ NON"]]
+                markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
+                self.send_message(chat_id, 
+                    f"Voulez-vous modifier le bouton clavier **{text}** ?", 
+                    markup
+                )
+                return
+            
             # STATE_NEW_CARD (Confirmation OUI/NON)
             elif current_step == STATE_NEW_CARD:
                 if text == "✅ OUI":
@@ -412,7 +406,7 @@ class TelegramHandlers:
             return
 
 
-        # ROUTAGE PRINCIPAL
+        # 2. ROUTAGE DES COMMANDES HAUT NIVEAU
 
         # ENREGISTRER (Finalisation de l'édition)
         if text == "✅ ENREGISTRER" and user_id in self.editing_state:
@@ -422,6 +416,7 @@ class TelegramHandlers:
             new_card = state['new_card']
             new_result = tuple(state['new_result'])
             
+            # Logique d'enregistrement (suppression/mise à jour)
             if original_card != new_card:
                 if original_card in self.transfo:
                     del self.transfo[original_card] 
@@ -441,11 +436,6 @@ class TelegramHandlers:
             kb = [["⬅️ Retour au Menu"]] 
             markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
             self.send_message(chat_id, msg, markup)
-            return
-
-        if text == "❌ ANNULER" and user_id in self.editing_state:
-            del self.editing_state[user_id]
-            self.send_message(chat_id, "❌ Modification annulée. Utilisez `/start` pour revenir au menu principal.")
             return
 
         # Logique de Restauration des Cartes (Admin)
@@ -479,7 +469,7 @@ class TelegramHandlers:
         if text == "/start" or text == "⬅️ Retour au Menu":
             self.waiting_password.discard(user_id)
             self.waiting_update_pw.discard(user_id)
-            self.editing_state.pop(user_id, None)
+            self.editing_state.pop(user_id, None) 
             
             kb = [["1️⃣ J’ai une licence"], ["2️⃣ Administrateur"], ["3️⃣ Mise à jour"]]
             markup = json.dumps({"keyboard": kb, "resize_keyboard": True, "one_time_keyboard": False})
@@ -503,7 +493,6 @@ class TelegramHandlers:
                 return
 
             if text == UPDATE_PW:
-                # ENVOIE LE PANNEAU D'ÉDITION APRÈS LE MOT DE PASSE
                 self.send_update_panel(chat_id) 
                 return
             else:
@@ -528,16 +517,17 @@ class TelegramHandlers:
 
         # Choix 1 : Saisie de la licence (1️⃣ J’ai une licence)
         if text == "1️⃣ J’ai une licence":
-            # NETTOYAGE DE L'ÉTAT D'ÉDITION POUR ÉVITER LE CONFLIT ADMIN/LICENCE (SOLUTION DU PROBLÈME)
+            # NETTOYAGE D'ÉTAT CLÉ POUR GARANTIR LE FLUX DE PRÉDICTION
             self.editing_state.pop(user_id, None) 
             self.send_message(chat_id, "Veuillez entrer votre licence :", markup='{"remove_keyboard": true}')
             return
 
-        # Vérification et activation de licence
+        # 3. VÉRIFICATION ET ACTIVATION DE LICENCE
         data = self._load_yaml()
         is_valid_code = any(text in lst for lst in data.values())
 
         if is_valid_code:
+            # [...] (Logique d'activation de licence)
             lic_user = self._get_user_licence(user_id)
             
             if lic_user and not self._licence_expired(lic_user):
@@ -569,20 +559,8 @@ class TelegramHandlers:
             self.send_keyboard(chat_id) 
             return
             
-        # SÉLECTION DE LA CARTE À ÉDITER (LANCEMENT DE L'ÉTAT D'ÉDITION PAR UN CLIC DANS LE PANNEAU)
-        if user_id in ADMIN_IDS and text in self.transfo.keys() and not self.editing_state:
-             self.editing_state[user_id] = {'step': STATE_NEW_CARD, 'original_card': text} 
-             
-             kb = [["✅ OUI"], ["❌ NON"]]
-             markup = json.dumps({"keyboard": kb, "resize_keyboard": True})
-             self.send_message(chat_id, 
-                 f"Voulez-vous modifier le bouton clavier **{text}** ?", 
-                 markup
-             )
-             return
-
-
-        # VÉRIFICATION D'EXPIRATION ET BLOCAGE
+        
+        # 4. VÉRIFICATION D'EXPIRATION ET BLOCAGE
         lic_user = self._get_user_licence(user_id)
         if not lic_user or self._licence_expired(lic_user):
             if lic_user and self._licence_expired(lic_user):
@@ -593,15 +571,18 @@ class TelegramHandlers:
             self.send_message(chat_id, "🔒 Licence invalide ou expirée. Veuillez entrer une licence valide.", markup)
             return
 
-        # UTILISATEUR LICENCIÉ (PRÉDICTION)
+        # 5. UTILISATEUR LICENCIÉ (PRÉDICTION) - PRIORITÉ MAX
+        # Ce bloc s'exécute pour TOUT utilisateur (y compris l'admin) avec une licence valide
+        # qui clique sur une carte après avoir passé le menu "J'ai une licence".
         remaining = self._remaining_str(lic_user)
         self.send_message(chat_id, remaining)
 
-        # Affichage de la prédiction (CETTE PARTIE A MAINTENANT LA PRIORITÉ SUR TOUTE ÉDITION ACCIDENTELLE)
+        # Affichage de la prédiction
         if text == "REGLES DE JEU":
             self.send_message(chat_id, self.regles)
             return
         if text in self.transfo:
+            # PRÉDICTION ET RETURN IMMÉDIAT
             nom, symb = self.transfo[text] 
             
             display_result = f"{nom} {symb}".strip() 
@@ -609,5 +590,6 @@ class TelegramHandlers:
             self.send_message(chat_id, f"⚜️LE JOUEUR VA OBTENIR UNE CARTE ENSEIGNE : **{display_result}**\n\n📍ASSURANCE 100%📍")
             return
         
+        # 6. Message non compris
         self.send_message(chat_id, "Je n'ai pas compris ce message. Veuillez sélectionner une carte ou utiliser une commande.")
-            
+                       
